@@ -13,5 +13,30 @@ export function clearAccessToken(): void {
 }
 
 export function isAuthenticated(): boolean {
-  return Boolean(getAccessToken());
+  const token = getAccessToken();
+  if (!token) {
+    return false;
+  }
+
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    clearAccessToken();
+    return false;
+  }
+
+  try {
+    const payloadJson = atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"));
+    const payload = JSON.parse(payloadJson) as { exp?: number };
+    if (typeof payload.exp === "number") {
+      const nowEpochSeconds = Math.floor(Date.now() / 1000);
+      if (payload.exp <= nowEpochSeconds) {
+        clearAccessToken();
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    clearAccessToken();
+    return false;
+  }
 }

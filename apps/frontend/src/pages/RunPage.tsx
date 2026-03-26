@@ -29,6 +29,7 @@ export function RunPage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [dots, setDots] = useState(".");
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+  const [expandedRawPayloads, setExpandedRawPayloads] = useState<Record<string, boolean>>({});
 
   const rerunMutation = useMutation({
     mutationFn: async () => {
@@ -99,6 +100,13 @@ export function RunPage() {
   }, [isProcessing]);
 
   const caseMeta = caseDetail ? extractCaseMeta(caseDetail) : null;
+
+  function toggleRawPayload(messageId: string) {
+    setExpandedRawPayloads((current) => ({
+      ...current,
+      [messageId]: !current[messageId],
+    }));
+  }
 
   return (
     <section className="relative">
@@ -183,6 +191,22 @@ export function RunPage() {
                 {message.created_at ? ` | ${new Date(message.created_at).toLocaleTimeString()}` : ""}
               </div>
               <p className="text-sm">{message.content}</p>
+              {message.structured_payload ? (
+                <div className="mt-2">
+                  <button
+                    className="rounded-full border border-ink/20 px-3 py-1 text-xs"
+                    type="button"
+                    onClick={() => toggleRawPayload(message.id)}
+                  >
+                    {expandedRawPayloads[message.id] ? "Hide raw payload" : "Inspect raw payload"}
+                  </button>
+                  {expandedRawPayloads[message.id] ? (
+                    <pre className="mt-2 overflow-x-auto rounded-lg border border-ink/10 bg-paper p-2 text-xs">
+                      {JSON.stringify(message.structured_payload, null, 2)}
+                    </pre>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

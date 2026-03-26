@@ -4,6 +4,7 @@ import { clearAccessToken, isAuthenticated } from "./auth/token";
 import { CaseEditorPage } from "./pages/CaseEditorPage";
 import { CasesPage } from "./pages/CasesPage";
 import { LoginPage } from "./pages/LoginPage";
+import { AgentsPage } from "./pages/AgentsPage";
 import { RunConfigsPage } from "./pages/RunConfigsPage";
 import { RunComparePage } from "./pages/RunComparePage";
 import { RunPage } from "./pages/RunPage";
@@ -39,6 +40,9 @@ export function App() {
             </Link>
             <Link className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white" to="/configs">
               Run Configs
+            </Link>
+            <Link className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white" to="/agents">
+              Agents
             </Link>
             <button
               className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white"
@@ -76,6 +80,14 @@ export function App() {
             element={
               <RequireAuth>
                 <RunConfigsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/agents"
+            element={
+              <RequireAuth>
+                <AgentsPage />
               </RequireAuth>
             }
           />

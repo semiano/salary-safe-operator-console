@@ -1,6 +1,12 @@
 const API_BASE = "/api";
 
-import { getAccessToken } from "../auth/token";
+import { clearAccessToken, getAccessToken } from "../auth/token";
+
+function handleAuthFailure(statusCode: number): void {
+  if (statusCode === 401) {
+    clearAccessToken();
+  }
+}
 
 function buildHeaders(includeAuth: boolean): Record<string, string> {
   const headers: Record<string, string> = {
@@ -23,6 +29,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   });
 
   if (!response.ok) {
+    handleAuthFailure(response.status);
     throw new Error(`Request failed: ${response.status}`);
   }
 
@@ -37,6 +44,7 @@ export async function apiPost<T>(path: string, payload: unknown): Promise<T> {
   });
 
   if (!response.ok) {
+    handleAuthFailure(response.status);
     throw new Error(`Request failed: ${response.status}`);
   }
 
@@ -51,6 +59,7 @@ export async function apiPut<T>(path: string, payload: unknown): Promise<T> {
   });
 
   if (!response.ok) {
+    handleAuthFailure(response.status);
     throw new Error(`Request failed: ${response.status}`);
   }
 

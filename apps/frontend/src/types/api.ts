@@ -63,6 +63,20 @@ export type RunConfigSummary = {
   updated_at: string;
 };
 
+export type PromptSetSummary = {
+  id: string;
+  name: string;
+  version: string;
+  description: string | null;
+  candidate_rep_prompt: string;
+  company_rep_prompt: string;
+  arbitrator_prompt: string;
+  intake_prompt: string;
+  policy_prompt: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type FinalReport = {
   schema_version: string;
   negotiation_id: string;

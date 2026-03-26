@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -25,9 +26,24 @@ class SeedCase:
     company_confidential: dict[str, Any]
 
 
-PROMPT_SET_NAME = "PoC Baseline"
+PROMPT_SET_NAME = "SalarySafe System Baseline"
+LEGACY_PROMPT_SET_NAME = "PoC Baseline"
 PROMPT_SET_VERSION = "1.0"
 RUN_CONFIG_NAME = "baseline_hybrid_guided"
+
+
+def _prompt_file_path(filename: str) -> Path:
+    return Path(__file__).resolve().parent.parent / "agent_runtime" / "prompts" / filename
+
+
+def _load_seed_prompt_values() -> dict[str, str]:
+    return {
+        "intake_prompt": _prompt_file_path("intake_normalizer.txt").read_text(encoding="utf-8"),
+        "candidate_rep_prompt": _prompt_file_path("candidate_rep.txt").read_text(encoding="utf-8"),
+        "company_rep_prompt": _prompt_file_path("company_rep.txt").read_text(encoding="utf-8"),
+        "policy_prompt": _prompt_file_path("policy_guard.txt").read_text(encoding="utf-8"),
+        "arbitrator_prompt": _prompt_file_path("arbitrator.txt").read_text(encoding="utf-8"),
+    }
 
 
 def _build_seed_cases() -> list[SeedCase]:
@@ -91,22 +107,36 @@ def seed() -> None:
             )
             session.flush()
 
+        prompt_values = _load_seed_prompt_values()
+
         prompt_set = session.scalar(
             select(PromptSet).where(PromptSet.name == PROMPT_SET_NAME).where(PromptSet.version == PROMPT_SET_VERSION)
         )
         if prompt_set is None:
+            prompt_set = session.scalar(
+                select(PromptSet)
+                .where(PromptSet.name == LEGACY_PROMPT_SET_NAME)
+                .where(PromptSet.version == PROMPT_SET_VERSION)
+            )
+
+        if prompt_set is None:
             prompt_set = PromptSet(
                 name=PROMPT_SET_NAME,
                 version=PROMPT_SET_VERSION,
-                description="Default prompt set for deterministic PoC testing",
-                candidate_rep_prompt="Candidate representative baseline prompt.",
-                company_rep_prompt="Company representative baseline prompt.",
-                arbitrator_prompt="Arbitrator baseline prompt.",
-                intake_prompt="Intake normalizer baseline prompt.",
-                policy_prompt="Policy guard baseline prompt.",
+                description="Production-ready baseline prompts for SalarySafe operator deployments",
+                **prompt_values,
             )
             session.add(prompt_set)
             session.flush()
+        else:
+            prompt_set.name = PROMPT_SET_NAME
+            prompt_set.version = PROMPT_SET_VERSION
+            prompt_set.description = "Production-ready baseline prompts for SalarySafe operator deployments"
+            prompt_set.intake_prompt = prompt_values["intake_prompt"]
+            prompt_set.candidate_rep_prompt = prompt_values["candidate_rep_prompt"]
+            prompt_set.company_rep_prompt = prompt_values["company_rep_prompt"]
+            prompt_set.policy_prompt = prompt_values["policy_prompt"]
+            prompt_set.arbitrator_prompt = prompt_values["arbitrator_prompt"]
 
         seed_cases = _build_seed_cases()
         created_case_ids: list[UUID] = []
@@ -146,15 +176,20 @@ def seed() -> None:
             )
             created_case_ids.append(case.id)
 
+        baseline_provider = settings.llm_provider
+        baseline_model_name = settings.openai_model if baseline_provider == "openai" else (
+            settings.azure_openai_deployment_name or "gpt-4.1"
+        )
+
         run_config_payload = {
-            "provider": "azure_openai",
-            "model_name": "gpt-4.1",
+            "provider": baseline_provider,
+            "model_name": baseline_model_name,
             "temperature_profile": {
                 "intake": 0.1,
-                "candidate_rep": 0.4,
-                "company_rep": 0.3,
+                "candidate_rep": 0.55,
+                "company_rep": 0.45,
                 "policy_guard": 0.0,
-                "arbitrator": 0.1,
+                "arbitrator": 0.25,
             },
             "conversation_mode": "hybrid_guided_groupchat",
             "max_rounds": 5,
@@ -167,6 +202,7 @@ def seed() -> None:
             "allow_review_cycle_tradeoffs": True,
             "deadlock_repeat_threshold": 2,
             "rerun_count": 3,
+            "turn_delay_seconds": 1.5,
         }
 
         for case_id in created_case_ids:
@@ -177,6 +213,8 @@ def seed() -> None:
             )
             if existing_config is None:
                 session.add(RunConfig(case_id=case_id, name=RUN_CONFIG_NAME, config_json=run_config_payload))
+            else:
+                existing_config.config_json = run_config_payload
 
         session.commit()
         print("Seed completed.")
