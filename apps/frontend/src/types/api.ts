@@ -5,6 +5,7 @@ export type CaseSummary = {
   status: string;
   jurisdiction: string | null;
   currency: string;
+  operator_guidance: string;
   created_at: string;
   updated_at: string;
   parties: Array<{
@@ -75,6 +76,49 @@ export type PromptSetSummary = {
   policy_prompt: string;
   created_at: string;
   updated_at: string;
+};
+
+export type Phase1Bid = {
+  id: string;
+  case_id: string;
+  token: string;
+  applicant_identifier: string;
+  candidate_email: string | null;
+  candidate_name: string | null;
+  is_invitation: boolean;
+  invitation_code: string | null;
+  salary_min: number;
+  salary_max: number;
+  insurance_importance_rank: number;
+  pto_importance_rank: number;
+  wfh_importance_rank: number;
+  submission_status: "invitation_pending" | "applicant_bid_submitted" | "response_sent";
+  decision_status: "pending" | "accepted" | "rejected";
+  decision_reason: string | null;
+  response_message: string;
+  received_at: string;
+  sent_at: string | null;
+  candidate_submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BidStats = {
+  invitations_sent: number;
+  bids_received: number;
+};
+
+export type PublicBidLookup = {
+  ok: boolean;
+  already_submitted: boolean;
+  requires_code: boolean;
+  candidate_name: string | null;
+  job_title: string;
+  company_description: string | null;
+  work_arrangement: string | null;
+  location: string | null;
+  currency: string;
+  benefits: string[];
 };
 
 export type FinalReport = {

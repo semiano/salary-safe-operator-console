@@ -17,7 +17,11 @@ from app.schemas.case import (
     CasePartyResponse,
     CaseResponse,
     CaseUpdateRequest,
+    ParseInvitationsRequest,
+    ParseInvitationsResponse,
+    ParsedInvitation,
     RandomCasePromptResponse,
+    RoleAutofillResponse,
 )
 from app.schemas.run import RunCreateRequest, RunResponse
 from app.agent_runtime.providers import get_provider
@@ -42,6 +46,7 @@ def _to_case_response(case: NegotiationCase) -> CaseResponse:
         status=case.status,
         jurisdiction=case.jurisdiction,
         currency=case.currency,
+        operator_guidance=case.operator_guidance,
         created_at=case.created_at,
         updated_at=case.updated_at,
         parties=[
@@ -212,6 +217,139 @@ async def preview_case_from_prompt(payload: CaseCreateFromPromptRequest) -> Case
     return CaseCreateRequest(**generated)
 
 
+@router.post("/autofill-role", response_model=RoleAutofillResponse)
+async def autofill_role() -> RoleAutofillResponse:
+    """Generate a realistic job listing payload for the Post-a-Role form. Nothing is saved."""
+    provider = get_provider()
+    system_prompt = (
+        "You are a hiring data generator for SalarySafe, a confidential salary-matching platform. "
+        "Return ONLY a valid JSON object — no markdown, no explanation — matching this exact schema:\n"
+        "{\n"
+        '  "job_title": string,\n'
+        '  "category": one of [Engineering, Product, Design, Sales, Marketing, Finance, Operations, Legal, \'HR & People\', \'Customer Success\', \'Data & Analytics\', Other],\n'
+        '  "work_arrangement": one of [remote, hybrid, onsite],\n'
+        '  "location": string (city/state or \'Remote – US only\' etc.),\n'
+        '  "job_description": string (2-4 sentences),\n'
+        '  "responsibilities": array of 4-6 strings,\n'
+        '  "currency": one of [USD, GBP, EUR, CAD, AUD],\n'
+        '  "budget_floor": integer (annual salary minimum in whole dollars),\n'
+        '  "budget_ceiling": integer (annual salary maximum, must be > budget_floor),\n'
+        '  "pto_days": integer between 10 and 30,\n'
+        '  "wfh_days_per_week": integer between 0 and 5,\n'
+        '  "health_insurance": boolean,\n'
+        '  "retirement_401k": boolean,\n'
+        '  "dental_vision": boolean,\n'
+        '  "stock_options": boolean,\n'
+        '  "invitations": array of 2-4 objects each with keys \"name\" (realistic full name) and \"email\" (realistic email)\n'
+        "}"
+    )
+    result = await provider.generate(
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": "Generate a varied, realistic job listing for the SalarySafe hiring form. Pick a random industry and seniority level."}],
+        temperature=0.85,
+    )
+    parsed = _extract_json_object(result.get("content", ""))
+
+    # Coerce and validate fields with safe fallbacks
+    job_title = str(parsed.get("job_title") or "Software Engineer").strip()
+    category = str(parsed.get("category") or "Engineering").strip()
+    work_arrangement = str(parsed.get("work_arrangement") or "hybrid").strip()
+    if work_arrangement not in {"remote", "hybrid", "onsite"}:
+        work_arrangement = "hybrid"
+    location = str(parsed.get("location") or "New York, NY").strip()
+    job_description = str(parsed.get("job_description") or "").strip()
+    responsibilities_raw = parsed.get("responsibilities") or []
+    responsibilities = [str(r).strip() for r in responsibilities_raw if r] if isinstance(responsibilities_raw, list) else []
+    currency = str(parsed.get("currency") or "USD").strip().upper()
+    if currency not in {"USD", "GBP", "EUR", "CAD", "AUD"}:
+        currency = "USD"
+    try:
+        budget_floor = int(parsed.get("budget_floor") or 80000)
+    except (TypeError, ValueError):
+        budget_floor = 80000
+    try:
+        budget_ceiling = int(parsed.get("budget_ceiling") or 120000)
+    except (TypeError, ValueError):
+        budget_ceiling = 120000
+    if budget_ceiling <= budget_floor:
+        budget_ceiling = budget_floor + 20000
+    try:
+        pto_days = max(0, min(365, int(parsed.get("pto_days") or 15)))
+    except (TypeError, ValueError):
+        pto_days = 15
+    try:
+        wfh_days = max(0, min(5, int(parsed.get("wfh_days_per_week") or 2)))
+    except (TypeError, ValueError):
+        wfh_days = 2
+    invitations_raw = parsed.get("invitations") or []
+    invitations = [
+        {"name": str(inv.get("name", "")).strip(), "email": str(inv.get("email", "")).strip()}
+        for inv in (invitations_raw if isinstance(invitations_raw, list) else [])
+        if isinstance(inv, dict) and inv.get("name") and inv.get("email")
+    ]
+    return RoleAutofillResponse(
+        job_title=job_title,
+        category=category,
+        work_arrangement=work_arrangement,
+        location=location,
+        job_description=job_description,
+        responsibilities=responsibilities,
+        currency=currency,
+        budget_floor=budget_floor,
+        budget_ceiling=budget_ceiling,
+        pto_days=pto_days,
+        wfh_days_per_week=wfh_days,
+        health_insurance=bool(parsed.get("health_insurance", True)),
+        retirement_401k=bool(parsed.get("retirement_401k", True)),
+        dental_vision=bool(parsed.get("dental_vision", False)),
+        stock_options=bool(parsed.get("stock_options", False)),
+        invitations=invitations,
+    )
+
+
+@router.post("/parse-invitations", response_model=ParseInvitationsResponse)
+async def parse_invitations(payload: ParseInvitationsRequest) -> ParseInvitationsResponse:
+    """Use an LLM to extract name/email pairs from freeform pasted text."""
+    if not payload.text or not payload.text.strip():
+        return ParseInvitationsResponse(invitations=[])
+
+    provider = get_provider()
+    system_prompt = (
+        "You are a data extraction assistant. "
+        "Extract all name and email address pairs from the text the user provides. "
+        "The text may use any delimiter (commas, semicolons, newlines, pipes, spaces) and any format "
+        "(e.g. 'John Smith <john@example.com>', 'jane@example.com Jane Doe', plain email lists, etc.). "
+        "If a name cannot be determined, infer it from the email local-part as a best guess (capitalised). "
+        "Return ONLY valid JSON — no markdown, no explanation — matching this exact schema:\n"
+        '{"invitations": [{"name": string, "email": string}, ...]}\n'
+        "Omit any entry where the email is not a valid email address format. "
+        "Deduplicate by email (case-insensitive)."
+    )
+    result = await provider.generate(
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": payload.text}],
+        temperature=0.0,
+    )
+    raw = _extract_json_object(result.get("content", ""))
+    raw_list = raw.get("invitations") or []
+    invitations = []
+    seen: set[str] = set()
+    email_re = r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+    import re
+    for item in raw_list if isinstance(raw_list, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        email = str(item.get("email") or "").strip().lower()
+        if not email or not re.match(email_re, email):
+            continue
+        if email in seen:
+            continue
+        seen.add(email)
+        invitations.append(ParsedInvitation(name=name or email.split("@")[0].capitalize(), email=email))
+    return ParseInvitationsResponse(invitations=invitations)
+
+
 @router.get("/from-prompt/random", response_model=RandomCasePromptResponse)
 async def random_case_prompt() -> RandomCasePromptResponse:
     provider = get_provider()
@@ -262,6 +400,7 @@ def update_case(case_id: UUID, payload: CaseUpdateRequest, db: Session = Depends
         status=payload.status,
         jurisdiction=payload.jurisdiction,
         currency=payload.currency,
+        operator_guidance=payload.operator_guidance,
         candidate_public=payload.candidate.public_payload if payload.candidate else None,
         candidate_confidential=payload.candidate.confidential_payload if payload.candidate else None,
         company_public=payload.company.public_payload if payload.company else None,

@@ -157,6 +157,11 @@ export function CaseEditorPage() {
   return (
     <section className="grid gap-6 lg:grid-cols-[2fr,1fr]">
       <article className="space-y-4 rounded-2xl border border-ink/10 bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-2 text-sm text-slate mb-1">
+          <Link className="hover:text-ink" to="/corporate">← Corporate</Link>
+          <span className="text-ink/30">/</span>
+          <span>Case Editor</span>
+        </div>
         <h2 className="font-display text-xl">Case Editor</h2>
         <p className="text-sm text-slate">Case id: {caseId}</p>
 

@@ -71,6 +71,7 @@ class CaseService:
         status: str | None,
         jurisdiction: str | None,
         currency: str | None,
+        operator_guidance: str | None,
         candidate_public: dict | None,
         candidate_confidential: dict | None,
         company_public: dict | None,
@@ -86,6 +87,8 @@ class CaseService:
             case.jurisdiction = jurisdiction
         if currency is not None:
             case.currency = currency
+        if operator_guidance is not None:
+            case.operator_guidance = operator_guidance
 
         parties = {party.party_type: party for party in case.parties}
         candidate_party = parties.get("candidate")

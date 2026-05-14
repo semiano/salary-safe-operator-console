@@ -36,6 +36,7 @@ class CaseUpdateRequest(BaseModel):
     status: str | None = None
     jurisdiction: str | None = None
     currency: str | None = None
+    operator_guidance: str | None = None
     candidate: PartyInputPayload | None = None
     company: PartyInputPayload | None = None
 
@@ -50,6 +51,38 @@ class CasePartyResponse(BaseModel):
     updated_at: datetime
 
 
+class RoleAutofillResponse(BaseModel):
+    job_title: str
+    category: str
+    work_arrangement: str
+    location: str
+    job_description: str
+    responsibilities: list[str]
+    currency: str
+    budget_floor: int
+    budget_ceiling: int
+    pto_days: int
+    wfh_days_per_week: int
+    health_insurance: bool
+    retirement_401k: bool
+    dental_vision: bool
+    stock_options: bool
+    invitations: list[dict[str, str]]
+
+
+class ParseInvitationsRequest(BaseModel):
+    text: str
+
+
+class ParsedInvitation(BaseModel):
+    name: str
+    email: str
+
+
+class ParseInvitationsResponse(BaseModel):
+    invitations: list[ParsedInvitation]
+
+
 class CaseResponse(BaseModel):
     id: UUID
     title: str
@@ -58,6 +91,7 @@ class CaseResponse(BaseModel):
     status: str
     jurisdiction: str | None
     currency: str
+    operator_guidance: str
     created_at: datetime
     updated_at: datetime
     parties: list[CasePartyResponse] = Field(default_factory=list)

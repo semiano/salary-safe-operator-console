@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.core.security import get_password_hash
 from app.core.db import SessionLocal
 from app.core.settings import get_settings
-from app.models.case import CaseParty, NegotiationCase
+from app.models.case import CaseParty, NegotiationCase, Phase1Bid
 from app.models.config import RunConfig
 from app.models.prompt import PromptSet
 from app.models.user import User
@@ -30,6 +30,24 @@ PROMPT_SET_NAME = "SalarySafe System Baseline"
 LEGACY_PROMPT_SET_NAME = "PoC Baseline"
 PROMPT_SET_VERSION = "1.0"
 RUN_CONFIG_NAME = "baseline_hybrid_guided"
+
+SEEDED_NON_ADMIN_USERS: list[dict[str, str]] = [
+    {
+        "email": "operator1@salarysafe.dev",
+        "password": "Operator1!salarysafe",
+        "role": "operator",
+    },
+    {
+        "email": "reviewer1@salarysafe.dev",
+        "password": "Reviewer1!salarysafe",
+        "role": "reviewer",
+    },
+    {
+        "email": "support1@salarysafe.dev",
+        "password": "Support1!salarysafe",
+        "role": "support",
+    },
+]
 
 
 def _prompt_file_path(filename: str) -> Path:
@@ -106,6 +124,19 @@ def seed() -> None:
                 )
             )
             session.flush()
+
+        seeded_users: list[dict[str, str]] = []
+        for user_seed in SEEDED_NON_ADMIN_USERS:
+            existing_user = session.scalar(select(User).where(User.email == user_seed["email"]))
+            if existing_user is None:
+                session.add(
+                    User(
+                        email=user_seed["email"],
+                        password_hash=get_password_hash(user_seed["password"]),
+                        role=user_seed["role"],
+                    )
+                )
+                seeded_users.append(user_seed)
 
         prompt_values = _load_seed_prompt_values()
 
@@ -216,12 +247,94 @@ def seed() -> None:
             else:
                 existing_config.config_json = run_config_payload
 
+        azure_presales_cases = list(
+            session.scalars(select(NegotiationCase).where(NegotiationCase.title.ilike("%Microsoft Azure Pre-Sales%"))).all()
+        )
+        seeded_phase1_bid_count = 0
+        if azure_presales_cases:
+            bid_seed_rows = [
+                {
+                    "applicant_identifier": "alex.chen@example.com",
+                    "salary_min": 172000,
+                    "salary_max": 186000,
+                    "insurance_importance_rank": 2,
+                    "pto_importance_rank": 3,
+                    "wfh_importance_rank": 2,
+                },
+                {
+                    "applicant_identifier": "priya.narayanan@example.com",
+                    "salary_min": 184000,
+                    "salary_max": 202000,
+                    "insurance_importance_rank": 1,
+                    "pto_importance_rank": 2,
+                    "wfh_importance_rank": 3,
+                },
+                {
+                    "applicant_identifier": "miguel.santos@example.com",
+                    "salary_min": 165000,
+                    "salary_max": 178000,
+                    "insurance_importance_rank": 3,
+                    "pto_importance_rank": 2,
+                    "wfh_importance_rank": 1,
+                },
+                {
+                    "applicant_identifier": "sophia.reed@example.com",
+                    "salary_min": 188000,
+                    "salary_max": 210000,
+                    "insurance_importance_rank": 2,
+                    "pto_importance_rank": 1,
+                    "wfh_importance_rank": 3,
+                },
+                {
+                    "applicant_identifier": "jamal.wright@example.com",
+                    "salary_min": 176000,
+                    "salary_max": 192000,
+                    "insurance_importance_rank": 1,
+                    "pto_importance_rank": 3,
+                    "wfh_importance_rank": 2,
+                },
+            ]
+
+            for azure_presales_case in azure_presales_cases:
+                for bid_row in bid_seed_rows:
+                    existing_bid = session.scalar(
+                        select(Phase1Bid)
+                        .where(Phase1Bid.case_id == azure_presales_case.id)
+                        .where(Phase1Bid.applicant_identifier == bid_row["applicant_identifier"])
+                    )
+                    if existing_bid is not None:
+                        continue
+
+                    session.add(
+                        Phase1Bid(
+                            case_id=azure_presales_case.id,
+                            applicant_identifier=bid_row["applicant_identifier"],
+                            salary_min=bid_row["salary_min"],
+                            salary_max=bid_row["salary_max"],
+                            insurance_importance_rank=bid_row["insurance_importance_rank"],
+                            pto_importance_rank=bid_row["pto_importance_rank"],
+                            wfh_importance_rank=bid_row["wfh_importance_rank"],
+                            submission_status="applicant_bid_submitted",
+                            decision_status="pending",
+                            decision_reason=None,
+                            response_message="",
+                        )
+                    )
+                    seeded_phase1_bid_count += 1
+
         session.commit()
         print("Seed completed.")
         print(f"Admin user: {settings.admin_seed_email}")
+        if seeded_users:
+            print("Non-admin users seeded this run:")
+            for user_seed in seeded_users:
+                print(f"- {user_seed['email']} / {user_seed['password']} ({user_seed['role']})")
+        else:
+            print("Non-admin users seeded this run: none (already existed)")
         print(f"Prompt set: {PROMPT_SET_NAME} v{PROMPT_SET_VERSION}")
         print(f"Cases available: {len(created_case_ids)}")
         print("Run configs created/verified: baseline_hybrid_guided per seeded case")
+        print(f"Azure Pre-Sales phase 1 bids seeded this run: {seeded_phase1_bid_count}")
     except Exception:
         session.rollback()
         raise

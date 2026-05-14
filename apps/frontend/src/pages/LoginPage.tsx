@@ -24,7 +24,7 @@ export function LoginPage() {
     try {
       const response = await apiPostPublic<LoginResponse>("/auth/login", { email, password });
       setAccessToken(response.access_token);
-      navigate("/cases", { replace: true });
+      navigate("/job-listings", { replace: true });
     } catch {
       setError("Login failed. Check credentials and try again.");
     } finally {

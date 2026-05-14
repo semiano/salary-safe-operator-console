@@ -66,11 +66,35 @@ export async function apiPut<T>(path: string, payload: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function apiDelete(path: string): Promise<void> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: buildHeaders(true),
+  });
+
+  if (!response.ok) {
+    handleAuthFailure(response.status);
+    throw new Error(`Request failed: ${response.status}`);
+  }
+}
+
 export async function apiPostPublic<T>(path: string, payload: unknown): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: buildHeaders(false),
     body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function apiGetPublic<T>(path: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: buildHeaders(false),
   });
 
   if (!response.ok) {

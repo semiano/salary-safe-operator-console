@@ -23,7 +23,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     settings = get_settings()
-    token = create_access_token(str(user.id), settings.access_token_expire_minutes)
+    token = create_access_token(str(user.id), settings.access_token_expire_minutes, role=user.role)
     return TokenResponse(access_token=token)
 
 

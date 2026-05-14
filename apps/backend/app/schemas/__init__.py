@@ -18,4 +18,10 @@ __all__ = [
     "RunMetricResponse",
     "FinalNegotiationReport",
     "validate_final_report",
+    "Phase1BidCreateRequest",
+    "Phase1BidDecisionUpdateRequest",
+    "Phase1BidResponseMessageUpdateRequest",
+    "Phase1BidBulkDecisionRequest",
+    "Phase1BidResponse",
+    "Phase1BidBulkDecisionResult",
 ]

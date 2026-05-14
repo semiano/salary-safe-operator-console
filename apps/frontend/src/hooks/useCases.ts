@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPost } from "../api/client";
+import { apiGet, apiPost, apiPut } from "../api/client";
 import type { CaseSummary } from "../types/api";
 
 type CaseCreatePayload = {
@@ -73,6 +73,51 @@ export function usePreviewCaseFromPrompt() {
 export function useRandomCasePrompt() {
   return useMutation({
     mutationFn: () => apiGet<RandomCasePromptResponse>("/cases/from-prompt/random"),
+  });
+}
+
+export function useUpdateCaseGuidance() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, operatorGuidance }: { caseId: string; operatorGuidance: string }) =>
+      apiPut<CaseSummary>(`/cases/${caseId}`, { operator_guidance: operatorGuidance }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cases"] });
+    },
+  });
+}
+
+export type RoleAutofillData = {
+  job_title: string;
+  category: string;
+  work_arrangement: string;
+  location: string;
+  job_description: string;
+  responsibilities: string[];
+  currency: string;
+  budget_floor: number;
+  budget_ceiling: number;
+  pto_days: number;
+  wfh_days_per_week: number;
+  health_insurance: boolean;
+  retirement_401k: boolean;
+  dental_vision: boolean;
+  stock_options: boolean;
+  invitations: Array<{ name: string; email: string }>;
+};
+
+export function useAutofillRole() {
+  return useMutation({
+    mutationFn: () => apiPost<RoleAutofillData>("/cases/autofill-role", {}),
+  });
+}
+
+export type ParsedInvitation = { name: string; email: string };
+
+export function useParseInvitations() {
+  return useMutation({
+    mutationFn: (text: string) =>
+      apiPost<{ invitations: ParsedInvitation[] }>("/cases/parse-invitations", { text }),
   });
 }
 

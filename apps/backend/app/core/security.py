@@ -19,6 +19,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 class TokenPayload(BaseModel):
     sub: str
     exp: int
+    role: str | None = None
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -29,10 +30,12 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(subject: str, expires_delta_minutes: int) -> str:
+def create_access_token(subject: str, expires_delta_minutes: int, role: str | None = None) -> str:
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_delta_minutes)
-    payload = {"sub": subject, "exp": int(expire.timestamp())}
+    payload: dict = {"sub": subject, "exp": int(expire.timestamp())}
+    if role is not None:
+        payload["role"] = role
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
