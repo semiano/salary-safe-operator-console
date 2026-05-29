@@ -20,6 +20,10 @@ class TokenPayload(BaseModel):
     sub: str
     exp: int
     role: str | None = None
+    tenant_id: str | None = None
+    tenant_alias: str | None = None
+    email: str | None = None
+    name: str | None = None
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -30,12 +34,28 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(subject: str, expires_delta_minutes: int, role: str | None = None) -> str:
+def create_access_token(
+    subject: str,
+    expires_delta_minutes: int,
+    role: str | None = None,
+    tenant_id: str | None = None,
+    tenant_alias: str | None = None,
+    email: str | None = None,
+    name: str | None = None,
+) -> str:
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_delta_minutes)
     payload: dict = {"sub": subject, "exp": int(expire.timestamp())}
     if role is not None:
         payload["role"] = role
+    if tenant_id is not None:
+        payload["tenant_id"] = tenant_id
+    if tenant_alias is not None:
+        payload["tenant_alias"] = tenant_alias
+    if email is not None:
+        payload["email"] = email
+    if name is not None:
+        payload["name"] = name
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 

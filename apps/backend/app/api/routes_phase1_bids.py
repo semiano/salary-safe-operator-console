@@ -25,6 +25,7 @@ from app.schemas.phase1_bid import (
     Phase1BidSimulateRequest,
     Phase1BidUpdateRequest,
 )
+from app.services.mail_service import send_bid_invitation, send_bid_response
 from app.services.phase1_bid_service import Phase1BidService
 
 router = APIRouter(tags=["phase1-bids"], dependencies=[Depends(get_current_user)])
@@ -220,6 +221,7 @@ def update_phase1_bid_decision(
     updated = service.update_decision(
         bid=bid,
         decision_status=payload.decision_status,
+        match_score=None,
         decision_reason=payload.decision_reason,
         response_message=payload.response_message,
     )
@@ -249,6 +251,21 @@ def send_phase1_bid_response(bid_id: UUID, db: Session = Depends(get_db)) -> Pha
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phase 1 bid not found")
 
     updated = service.send_response(bid)
+
+    # Fire-and-forget email (errors are logged, never bubble up)
+    if updated.candidate_email:
+        case = service.get_case(updated.case_id)
+        try:
+            send_bid_response(
+                candidate_name=updated.candidate_name or "",
+                candidate_email=updated.candidate_email,
+                role_title=case.title if case else "the role",
+                decision=updated.decision_status or "pending",
+                response_message=updated.response_message,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     return _to_response(updated)
 
 
@@ -286,7 +303,10 @@ async def bulk_decide_phase1_bids(
     system_prompt = (
         "You are evaluating phase 1 applicant bids for a hiring team. "
         "Return JSON only with key decisions. decisions must be an array of objects with keys: "
-        "bid_id, decision_status, decision_reason, response_message. "
+        "bid_id, match_score, decision_status, decision_reason, response_message. "
+        "match_score must be a number from 0 to 100, where higher means stronger match. "
+        "Do not reject candidates simply for having a target salary or for being below target. "
+        "Use affordability logic to filter out candidates who are too high on total compensation and benefits. "
         "decision_status must be accepted or rejected. "
         "response_message must be professional and concise."
     )
@@ -431,6 +451,26 @@ def resend_bid_invitation(bid_id: UUID, db: Session = Depends(get_db)) -> Phase1
     if not bid.is_invitation:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only invitation bids can be resent")
     updated = service.resend_invitation(bid=bid)
+
+    # Send / resend invitation email
+    if updated.candidate_email:
+        case = service.get_case(updated.case_id)
+        apply_url = f"{updated.invitation_code}"  # placeholder — frontend constructs full URL
+        try:
+            apply_url = (
+                f"http://159.65.237.234/apply/{updated.invitation_code}"
+                if updated.invitation_code
+                else ""
+            )
+            send_bid_invitation(
+                candidate_name=updated.candidate_name or "",
+                candidate_email=updated.candidate_email,
+                role_title=case.title if case else "the role",
+                apply_url=apply_url,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     return _to_response(updated)
 
 
@@ -471,6 +511,7 @@ def _to_response(bid: Phase1Bid) -> Phase1BidResponse:
         wfh_importance_rank=bid.wfh_importance_rank,
         submission_status=bid.submission_status,
         decision_status=bid.decision_status,
+        match_score=bid.match_score,
         decision_reason=bid.decision_reason,
         response_message=bid.response_message,
         received_at=bid.received_at,

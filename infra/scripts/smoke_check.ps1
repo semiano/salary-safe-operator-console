@@ -1,5 +1,7 @@
 param(
     [string]$BaseUrl = "http://localhost"
+    ,[switch]$IncludeLocalDirectHealth
+    ,[string]$LocalHealthUrl = "http://localhost:8000/health"
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,7 +31,10 @@ function Test-Endpoint {
 $allPassed = $true
 $allPassed = (Test-Endpoint -Name "Nginx root" -Url "$BaseUrl/") -and $allPassed
 $allPassed = (Test-Endpoint -Name "Backend health via Nginx" -Url "$BaseUrl/api/health") -and $allPassed
-$allPassed = (Test-Endpoint -Name "Backend direct health" -Url "http://localhost:8000/health") -and $allPassed
+
+if ($IncludeLocalDirectHealth) {
+    $allPassed = (Test-Endpoint -Name "Backend direct health" -Url $LocalHealthUrl) -and $allPassed
+}
 
 if ($allPassed) {
     Write-Host "Smoke checks passed."

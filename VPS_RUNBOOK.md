@@ -66,11 +66,45 @@ powershell -ExecutionPolicy Bypass -File .\vps-logs.ps1 -Service backend -Tail 2
 powershell -ExecutionPolicy Bypass -File .\vps-logs.ps1 -Service nginx -Follow
 ```
 
+## Secure DB access from local GHCP
+
+Use a local SSH tunnel when you need direct Postgres access for troubleshooting or seeding. This keeps Postgres private on the VPS while still allowing local tooling access.
+
+```powershell
+# Open tunnel (keep terminal open)
+powershell -ExecutionPolicy Bypass -File .\vps-db-tunnel.ps1
+
+# Example: connect from local psql/GHCP to localhost:5432
+# host=localhost port=5432 dbname=salary_negotiation user=postgres password=<POSTGRES_PASSWORD>
+```
+
+Notes:
+
+1. The tunnel forwards local `localhost:5432` to VPS `127.0.0.1:5432`.
+2. Stop the tunnel by closing the terminal where `vps-db-tunnel.ps1` is running.
+3. This replaces exposing Postgres publicly on `0.0.0.0:5432`.
+
+## One-command tunnel and auth health check
+
+After opening the tunnel, run this from your local machine to validate both DB access over the tunnel and VPS login API:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\vps-auth-db-health.ps1
+```
+
+Optional explicit URL:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\vps-auth-db-health.ps1 -BaseUrl "http://<your-vps-ip>"
+```
+
 ## Smoke check
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\vps-smoke-check.ps1
 ```
+
+By default the smoke check verifies the public nginx root and `/api/health` path only. The old localhost backend probe is still available as an opt-in diagnostic via `infra/scripts/smoke_check.ps1 -IncludeLocalDirectHealth`.
 
 ## Emergency recovery flow
 

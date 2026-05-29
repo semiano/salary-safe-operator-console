@@ -50,6 +50,7 @@ def _to_response(bid: Phase1Bid) -> Phase1BidResponse:
         wfh_importance_rank=bid.wfh_importance_rank,
         submission_status=bid.submission_status,
         decision_status=bid.decision_status,
+        match_score=bid.match_score,
         decision_reason=bid.decision_reason,
         response_message=bid.response_message,
         received_at=bid.received_at,
@@ -57,6 +58,8 @@ def _to_response(bid: Phase1Bid) -> Phase1BidResponse:
         candidate_submitted_at=bid.candidate_submitted_at,
         created_at=bid.created_at,
         updated_at=bid.updated_at,
+        job_title=bid.case.title if bid.case else None,
+        job_posted_at=bid.case.created_at if bid.case else None,
     )
 
 
@@ -189,7 +192,10 @@ async def bulk_decide_applications(
     system_prompt = (
         "You are evaluating phase 1 applicant bids for a hiring team. "
         "Return JSON only. decisions must be an array of objects with keys: "
-        "bid_id, decision_status (accepted|rejected), decision_reason, response_message."
+        "bid_id, match_score, decision_status (accepted|rejected), decision_reason, response_message. "
+        "match_score must be a number from 0 to 100, where higher means stronger match. "
+        "Do not reject candidates simply for having a target salary or for being below target. "
+        "Use affordability logic to filter out candidates who are too high on total compensation and benefits."
     )
     user_prompt = (
         f"Case: {case.title}\nBids: {bids_payload}\n"
@@ -294,6 +300,7 @@ def update_application_decision(application_id: UUID, payload: Phase1BidDecision
     updated = service.update_decision(
         bid=bid,
         decision_status=payload.decision_status,
+        match_score=None,
         decision_reason=payload.decision_reason,
         response_message=payload.response_message,
     )
@@ -318,3 +325,139 @@ def send_application_response(application_id: UUID, db: Session = Depends(get_db
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
     updated = service.send_response(bid)
     return _to_response(updated)
+
+
+@router.post("/applications/{application_id}/ai-auto-respond", response_model=Phase1BidResponse)
+async def ai_auto_respond_application(
+    application_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Phase1BidResponse:
+    """Global-admin only: use AI to simulate the candidate filling in their bid values,
+    then immediately run AI match so the bid is fully evaluated in one click."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+
+    service = Phase1BidService(db)
+    bid = service.get_bid(application_id)
+    if bid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+
+    if bid.submission_status != "invitation_pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI auto-respond only works on invitation_pending bids",
+        )
+
+    case = service.get_case(bid.case_id)
+    if case is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Associated job listing not found")
+
+    import json as _json
+
+    # Step 1: generate realistic candidate bid values
+    gen_system = (
+        "You are generating a realistic candidate bid response for a hiring portal. "
+        "Return JSON only with keys: salary_min (number), salary_max (number, >= salary_min), "
+        "insurance_importance_rank (1-3), pto_importance_rank (1-3), wfh_importance_rank (1-3). "
+        "Make the values realistic for the role and market."
+    )
+    gen_user = (
+        f"Generate candidate bid values for role: {case.title}\n"
+        f"Currency: {case.currency}\n"
+        f"Candidate: {bid.candidate_name or bid.candidate_email or 'unknown'}\n"
+        f"Requested by: {current_user.email}"
+    )
+
+    provider = get_provider()
+    gen_result = await provider.generate(
+        system_prompt=gen_system,
+        messages=[{"role": "user", "content": gen_user}],
+        temperature=0.7,
+    )
+
+    gen_content = str(gen_result.get("content", ""))
+    salary_min: float = 70000.0
+    salary_max: float = 90000.0
+    insurance_rank: int = 2
+    pto_rank: int = 2
+    wfh_rank: int = 2
+    try:
+        gs = gen_content.find("{")
+        ge = gen_content.rfind("}")
+        if gs != -1 and ge > gs:
+            gp = _json.loads(gen_content[gs : ge + 1])
+            salary_min = float(gp.get("salary_min", salary_min))
+            salary_max = max(float(gp.get("salary_max", salary_max)), salary_min)
+            insurance_rank = int(gp.get("insurance_importance_rank", insurance_rank))
+            pto_rank = int(gp.get("pto_importance_rank", pto_rank))
+            wfh_rank = int(gp.get("wfh_importance_rank", wfh_rank))
+    except Exception:
+        pass
+
+    # Step 2: stamp bid as submitted with the generated values
+    service.update_bid_fields(
+        bid=bid,
+        candidate_name=bid.candidate_name,
+        candidate_email=bid.candidate_email,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        insurance_importance_rank=max(1, min(3, insurance_rank)),
+        pto_importance_rank=max(1, min(3, pto_rank)),
+        wfh_importance_rank=max(1, min(3, wfh_rank)),
+    )
+
+    # Step 3: immediately run AI match decision
+    match_system = (
+        "You are evaluating a single phase 1 applicant bid for a hiring team. "
+        "Return JSON only with keys: match_score (0-100 number), decision_status ('accepted' or 'rejected'), "
+        "decision_reason (one concise sentence), "
+        "response_message (professional message to send the candidate). "
+        "Do not reject candidates simply for having a target salary or for being below target. "
+        "Use affordability logic to filter out candidates who are too high on total compensation and benefits."
+    )
+    match_user = (
+        f"Evaluate this bid for role: {case.title}\n"
+        f"Operator guidance: {case.operator_guidance}\n"
+        f"Candidate salary range: {salary_min}–{salary_max} {case.currency}\n"
+        f"Insurance rank: {insurance_rank}/3, PTO rank: {pto_rank}/3, WFH rank: {wfh_rank}/3"
+    )
+
+    match_result = await provider.generate(
+        system_prompt=match_system,
+        messages=[{"role": "user", "content": match_user}],
+        temperature=0.1,
+    )
+
+    match_content = str(match_result.get("content", ""))
+    decision = "pending"
+    match_score: float | None = None
+    decision_reason: str | None = None
+    response_message: str | None = None
+    try:
+        ms = match_content.find("{")
+        me = match_content.rfind("}")
+        if ms != -1 and me > ms:
+            mp = _json.loads(match_content[ms : me + 1])
+            d = str(mp.get("decision_status", "")).strip().lower()
+            if d in {"accepted", "rejected"}:
+                decision = d
+            try:
+                match_score = float(mp.get("match_score"))
+            except (TypeError, ValueError):
+                match_score = None
+            decision_reason = str(mp.get("decision_reason", "")).strip() or None
+            response_message = str(mp.get("response_message", "")).strip() or None
+    except Exception:
+        pass
+
+    if decision in {"accepted", "rejected"}:
+        bid = service.update_decision(
+            bid=bid,
+            decision_status=decision,
+            match_score=match_score,
+            decision_reason=decision_reason,
+            response_message=response_message,
+        )
+
+    return _to_response(bid)

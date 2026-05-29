@@ -109,6 +109,7 @@ class Phase1BidResponse(BaseModel):
     wfh_importance_rank: int
     submission_status: str
     decision_status: str
+    match_score: float | None
     decision_reason: str | None
     response_message: str
     received_at: datetime
@@ -116,6 +117,8 @@ class Phase1BidResponse(BaseModel):
     candidate_submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    job_title: str | None = None
+    job_posted_at: datetime | None = None
 
 
 class Phase1BidBulkDecisionResult(BaseModel):

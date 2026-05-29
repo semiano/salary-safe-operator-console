@@ -1,7 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { clearAccessToken, isAuthenticated, getTokenName } from "./auth/token";
+import { clearAccessToken, getTokenRole, isAuthenticated } from "./auth/token";
+import { AccountMenu } from "./components/AccountMenu";
+import { ActionQueueBell } from "./components/ActionQueueBell";
+import { DebugLogDock } from "./components/DebugLogDock";
+import { useTheme } from "./hooks/useTheme";
 import { CandidateApplyPage } from "./pages/CandidateApplyPage";
 import { CandidateBidPage } from "./pages/CandidateBidPage";
 import { CaseEditorPage } from "./pages/CaseEditorPage";
@@ -20,6 +24,7 @@ import { RunConfigsPage } from "./pages/RunConfigsPage";
 import { RunComparePage } from "./pages/RunComparePage";
 import { RunPage } from "./pages/RunPage";
 import { RunReportPage } from "./pages/RunReportPage";
+import { addDebugLog } from "./utils/debugLog";
 
 // ── Redirect helpers ──────────────────────────────────────────────────────────
 
@@ -50,147 +55,8 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 
 
 
-function MyAccountMenu({ onLogout }: { onLogout: () => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const userName = getTokenName() || "Admin";
 
-  // Close menu on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    if (open) {
-      document.addEventListener("mousedown", handleClick);
-    } else {
-      document.removeEventListener("mousedown", handleClick);
-    }
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
 
-  // Profile and Settings placeholders as modals
-  const [showProfile, setShowProfile] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-
-  return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <button
-        className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white flex items-center gap-2"
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        style={{ marginLeft: 16 }}
-      >
-        <span role="img" aria-label="Account">👤</span> {userName} ▾
-      </button>
-      {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 6px)",
-            right: 0,
-            minWidth: 180,
-            background: "white",
-            border: "1px solid rgba(0,0,0,0.12)",
-            borderRadius: 8,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
-            zIndex: 100,
-            display: "flex",
-            flexDirection: "column",
-            padding: "4px 0",
-          }}
-        >
-          <button
-            style={{
-              padding: "8px 16px",
-              background: "none",
-              border: "none",
-              textAlign: "left",
-              width: "100%",
-              cursor: "pointer",
-            }}
-            onClick={() => {
-              setOpen(false);
-              setShowProfile(true);
-            }}
-          >
-            <span style={{ marginRight: 8 }}>📝</span>Profile
-          </button>
-          <button
-            style={{
-              padding: "8px 16px",
-              background: "none",
-              border: "none",
-              textAlign: "left",
-              width: "100%",
-              cursor: "pointer",
-            }}
-            onClick={() => {
-              setOpen(false);
-              setShowSettings(true);
-            }}
-          >
-            <span style={{ marginRight: 8 }}>⚙️</span>Settings
-          </button>
-          <button
-            style={{
-              padding: "8px 16px",
-              background: "none",
-              border: "none",
-              textAlign: "left",
-              width: "100%",
-              cursor: "pointer",
-              color: "#d32f2f",
-            }}
-            onClick={() => {
-              setOpen(false);
-              onLogout();
-            }}
-          >
-            <span style={{ marginRight: 8 }}>🚪</span>Logout
-          </button>
-        </div>
-      )}
-
-      {/* Profile Modal */}
-      {showProfile && (
-        <div style={{
-          position: "fixed", left: 0, top: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.2)", zIndex: 200,
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }} onClick={() => setShowProfile(false)}>
-          <div style={{ background: "#fff", borderRadius: 12, minWidth: 320, maxWidth: 400, padding: 32, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ fontSize: 22, marginBottom: 12 }}>Profile</h2>
-            <div style={{ marginBottom: 16 }}>
-              <span role="img" aria-label="Account" style={{ fontSize: 32, marginRight: 12 }}>👤</span>
-              <span style={{ fontWeight: 500, fontSize: 18 }}>{userName}</span>
-            </div>
-            <div style={{ color: "#666", marginBottom: 24 }}>
-              This is your profile. In a future release, you’ll be able to update your name, email, and other account details here.
-            </div>
-            <button style={{ padding: "8px 24px", borderRadius: 6, border: "none", background: "#eee", cursor: "pointer" }} onClick={() => setShowProfile(false)}>Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* Settings Modal */}
-      {showSettings && (
-        <div style={{
-          position: "fixed", left: 0, top: 0, width: "100vw", height: "100vh", background: "rgba(0,0,0,0.2)", zIndex: 200,
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }} onClick={() => setShowSettings(false)}>
-          <div style={{ background: "#fff", borderRadius: 12, minWidth: 320, maxWidth: 400, padding: 32, boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ fontSize: 22, marginBottom: 12 }}>Settings</h2>
-            <div style={{ color: "#666", marginBottom: 24 }}>
-              Settings will be available here soon. You’ll be able to customize your experience and manage notification preferences.
-            </div>
-            <button style={{ padding: "8px 24px", borderRadius: 6, border: "none", background: "#eee", cursor: "pointer" }} onClick={() => setShowSettings(false)}>Close</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -198,6 +64,9 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const [underConOpen, setUnderConOpen] = useState(false);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const { style, setStyle } = useTheme();
+  const showAdminDebugDock = isAuthenticated() && getTokenRole() === "admin";
 
   // Public candidate-facing pages render without the corporate shell
   if (location.pathname.startsWith("/apply/") || location.pathname.startsWith("/bid/")) {
@@ -214,8 +83,46 @@ export function App() {
     navigate("/login", { replace: true });
   }
 
+  useEffect(() => {
+    if (!showAdminDebugDock || typeof window === "undefined") {
+      return;
+    }
+
+    addDebugLog("info", "app", "Admin debug mode enabled", { path: location.pathname });
+
+    const onUnhandledError = (event: ErrorEvent) => {
+      addDebugLog("error", "runtime", "Unhandled error", {
+        message: event.message,
+        filename: event.filename,
+        line: event.lineno,
+        column: event.colno,
+      });
+    };
+
+    const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+      addDebugLog("error", "runtime", "Unhandled promise rejection", {
+        reason: String(event.reason),
+      });
+    };
+
+    window.addEventListener("error", onUnhandledError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("error", onUnhandledError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, [showAdminDebugDock]);
+
+  useEffect(() => {
+    if (!showAdminDebugDock) {
+      return;
+    }
+    addDebugLog("debug", "app", "Route changed", { path: location.pathname });
+  }, [showAdminDebugDock, location.pathname]);
+
   return (
-    <div className="min-h-screen bg-paper text-ink">
+    <div className="min-h-screen bg-paper text-ink" style={{ paddingBottom: showAdminDebugDock ? 230 : 0 }}>
       <header className="border-b border-ink/15 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-4">
           <div>
@@ -244,6 +151,63 @@ export function App() {
               </svg>
               All Invitations
             </Link>
+            <div style={{ position: "relative" }}>
+              <button
+                className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white flex items-center gap-2"
+                type="button"
+                aria-label="Compensation Benchmarking"
+                aria-expanded={benchmarkOpen}
+                onClick={() => setBenchmarkOpen((v) => !v)}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M2 13.5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M4 12V7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M8 12V4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path d="M12 12V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+                Compensation Benchmarking
+              </button>
+              {benchmarkOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    left: 0,
+                    minWidth: 220,
+                    background: "var(--ss-surface)",
+                    border: "1px solid var(--ss-border)",
+                    color: "var(--ss-ink)",
+                    borderRadius: 8,
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+                    zIndex: 100,
+                    display: "flex",
+                    flexDirection: "column",
+                    padding: "4px 0",
+                  }}
+                >
+                  {[
+                    { label: "Overview", to: "/compensation-benchmarking", icon: "📊" },
+                    { label: "External", to: "/compensation-benchmarking/external", icon: "🌍" },
+                    { label: "Internal", to: "/compensation-benchmarking/internal", icon: "🏢" },
+                  ].map(({ label, to, icon }) => (
+                    <Link
+                      key={to}
+                      to={to}
+                      style={{
+                        padding: "8px 16px",
+                        color: "inherit",
+                        textDecoration: "none",
+                        display: "block",
+                        whiteSpace: "nowrap",
+                      }}
+                      onClick={() => setBenchmarkOpen(false)}
+                    >
+                      <span style={{ marginRight: 8 }}>{icon}</span>{label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
             {/* Under Construction icon-only button */}
             <div style={{ position: "relative" }}>
               <button
@@ -266,8 +230,9 @@ export function App() {
                     top: "calc(100% + 6px)",
                     right: 0,
                     minWidth: 160,
-                    background: "white",
-                    border: "1px solid rgba(0,0,0,0.12)",
+                    background: "var(--ss-surface)",
+                    border: "1px solid var(--ss-border)",
+                    color: "var(--ss-ink)",
                     borderRadius: 8,
                     boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
                     zIndex: 100,
@@ -301,8 +266,14 @@ export function App() {
             </div>
             {/* Spacer to push profile menu to far right */}
             <div className="flex-1" />
+            {/* Action queue bell */}
+            <ActionQueueBell />
             {/* My Account menu (far right) */}
-            <MyAccountMenu onLogout={onLogout} />
+            <AccountMenu
+              onLogout={onLogout}
+              style={style}
+              onSetStyle={setStyle}
+            />
           </nav>
         </div>
       </header>
@@ -313,6 +284,8 @@ export function App() {
           {/* Root → job-listings */}
           <Route path="/" element={<Navigate to="/job-listings" replace />} />
           <Route path="/login" element={<LoginPage />} />
+
+          <Route path="/compensation-benchmarking" element={<Navigate to="/compensation-benchmarking/external" replace />} />
 
           {/* ── Main new-taxonomy routes ── */}
           <Route
@@ -349,6 +322,22 @@ export function App() {
           />
           <Route
             path="/job-listings/:listingId/comp-internal"
+            element={
+              <RequireAuth>
+                <CompInternalPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/compensation-benchmarking/external"
+            element={
+              <RequireAuth>
+                <CompExternalPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/compensation-benchmarking/internal"
             element={
               <RequireAuth>
                 <CompInternalPage />
@@ -452,6 +441,8 @@ export function App() {
           <Route path="/corporate/bids/:bidId/edit" element={<BidIdEditRedirect />} />
         </Routes>
       </main>
+
+      {showAdminDebugDock ? <DebugLogDock /> : null}
     </div>
   );
 }

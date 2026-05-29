@@ -94,6 +94,7 @@ export type Phase1Bid = {
   wfh_importance_rank: number;
   submission_status: "invitation_pending" | "applicant_bid_submitted" | "response_sent";
   decision_status: "pending" | "accepted" | "rejected";
+  match_score: number | null;
   decision_reason: string | null;
   response_message: string;
   received_at: string;
@@ -101,6 +102,8 @@ export type Phase1Bid = {
   candidate_submitted_at: string | null;
   created_at: string;
   updated_at: string;
+  job_title: string | null;
+  job_posted_at: string | null;
 };
 
 export type BidStats = {

@@ -20,7 +20,7 @@ import {
 
 const AZURE_PRESALES_TITLE_FRAGMENT = "microsoft azure pre-sales";
 const BULK_DECISION_SYSTEM_PROMPT =
-  "You are evaluating phase 1 applicant bids for a hiring team. Return JSON only with key decisions. decisions must be an array of objects with keys: bid_id, decision_status, decision_reason, response_message. decision_status must be accepted or rejected. response_message must be professional and concise.";
+  "You are evaluating phase 1 applicant bids for a hiring team. Return JSON only with key decisions. decisions must be an array of objects with keys: bid_id, match_score, decision_status, decision_reason, response_message. match_score must be a number from 0 to 100 where higher means stronger fit. Do not reject candidates simply for having a target salary or for being below target. Use affordability logic to filter out candidates who are too high on total compensation and benefits. decision_status must be accepted or rejected. response_message must be professional and concise.";
 
 function formatSalaryForGuidance(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "n/a";
@@ -94,6 +94,13 @@ function fmtMoney(value: number): string {
   return Number.isFinite(value) ? value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : "0";
 }
 
+function formatMatchScore(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const clamped = Math.max(0, Math.min(100, value));
+  const rounded = Math.round(clamped * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
+}
+
 const RANK_LABEL: Record<number, string> = { 1: "Low", 2: "Med", 3: "High" };
 const RANK_COLOR: Record<number, string> = {
   1: "bg-zinc-100 text-zinc-600",
@@ -159,6 +166,17 @@ function summarizeMidpointRange(items: BidLike[]): { count: number; min: number 
     max: Math.max(...midpoints),
     avg: sum / items.length,
   };
+}
+
+function summarizeMatchScoreRange(items: Array<{ match_score: number | null }>): { count: number; avg: number | null } {
+  const numericScores = items
+    .map((item) => item.match_score)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (numericScores.length === 0) {
+    return { count: 0, avg: null };
+  }
+  const sum = numericScores.reduce((total, value) => total + value, 0);
+  return { count: numericScores.length, avg: sum / numericScores.length };
 }
 
 function hasCandidateBidSubmission(bid: {
@@ -316,6 +334,9 @@ export function CandidateBidsPage() {
   const allMidpointStats = summarizeMidpointRange(submittedBids);
   const acceptedMidpointStats = summarizeMidpointRange(submittedBids.filter((bid) => bid.decision_status === "accepted"));
   const rejectedMidpointStats = summarizeMidpointRange(submittedBids.filter((bid) => bid.decision_status === "rejected"));
+  const overallMatchScoreStats = summarizeMatchScoreRange(submittedBids);
+  const acceptedMatchScoreStats = summarizeMatchScoreRange(submittedBids.filter((bid) => bid.decision_status === "accepted"));
+  const rejectedMatchScoreStats = summarizeMatchScoreRange(submittedBids.filter((bid) => bid.decision_status === "rejected"));
 
   function clearFilters() {
     setFilterApplicant("");
@@ -386,7 +407,7 @@ export function CandidateBidsPage() {
   async function handleBulkDecide() {
     if (!selectedCaseId) return;
     if (!operatorGuidance.trim()) {
-      setBulkGuidanceError("Bulk Decision Guidance is required before running AI Calculate Matches.");
+      setBulkGuidanceError("Match Decision guidance is required before running AI Calculate Matches.");
       return;
     }
     setBulkGuidanceError(null);
@@ -456,7 +477,7 @@ export function CandidateBidsPage() {
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium">Bulk Decision Guidance (required)</label>
+          <label className="mb-1 block text-xs font-medium">Match Decision guidance (required)</label>
           <textarea
             className="min-h-20 w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
             value={operatorGuidance}
@@ -495,7 +516,7 @@ export function CandidateBidsPage() {
             </div>
 
             <div className="mb-4 rounded-lg border border-slate-300/60 bg-slate-100/60 px-3 py-2">
-              <WorkdayBenchmarkPanel />
+              <WorkdayBenchmarkPanel listingId={selectedCaseId ?? undefined} />
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -689,6 +710,9 @@ export function CandidateBidsPage() {
                 <HeaderWithTooltip title="Priorities" tooltip={`Candidate benefit priorities (Low / Med / High) for benefits offered by this role: ${benefitConfig ? [benefitConfig.showInsuranceRank && benefitConfig.insuranceLabel, benefitConfig.showPtoRank && benefitConfig.ptoLabel, benefitConfig.showWfhRank && benefitConfig.wfhLabel].filter(Boolean).join(", ") : "Insurance, PTO, WFH"}.`} />
               </th>
               <th className="sticky top-0 z-20 bg-ink px-4 py-3 font-medium">
+                <HeaderWithTooltip title="Match Score" tooltip="AI-generated fit score from 0-100 based on affordability and role preference alignment." />
+              </th>
+              <th className="sticky top-0 z-20 bg-ink px-4 py-3 font-medium">
                 <HeaderWithTooltip title="Decision Reason" tooltip="Operator or LLM rationale for accepted/rejected decision. Editable until the response is sent." />
               </th>
               <th className="sticky top-0 z-20 bg-ink px-4 py-3 font-medium">
@@ -702,11 +726,11 @@ export function CandidateBidsPage() {
           <tbody>
             {bidsLoading ? (
               <tr>
-                <td className="px-4 py-3 text-slate" colSpan={7}>Loading bids...</td>
+                <td className="px-4 py-3 text-slate" colSpan={8}>Loading bids...</td>
               </tr>
             ) : filteredBids.length === 0 ? (
               <tr>
-                <td className="px-4 py-3 text-slate" colSpan={7}>No bids match the current filters.</td>
+                <td className="px-4 py-3 text-slate" colSpan={8}>No bids match the current filters.</td>
               </tr>
             ) : (
               filteredBids.map((bid) => {
@@ -794,6 +818,15 @@ export function CandidateBidsPage() {
                             <RankChip label={benefitConfig?.wfhLabel ?? "WFH"} rank={bid.wfh_importance_rank} />
                           )}
                         </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 min-w-24">
+                      {isAwaiting ? (
+                        <span className="text-sm text-slate">—</span>
+                      ) : (
+                        <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                          {formatMatchScore(bid.match_score)}
+                        </span>
                       )}
                     </td>
                     <td className="px-4 py-3 min-w-64">
@@ -931,6 +964,24 @@ export function CandidateBidsPage() {
             <p className="text-xs text-slate">Min: {formatStatMoney(rejectedMidpointStats.min)}</p>
             <p className="text-xs text-slate">Max: {formatStatMoney(rejectedMidpointStats.max)}</p>
             <p className="text-xs text-slate">Avg: {formatStatMoney(rejectedMidpointStats.avg)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium">Overall Match Score</p>
+            <p className="text-xs text-slate">Scored bids: {overallMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(overallMatchScoreStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-green-700">Accepted Match Score</p>
+            <p className="text-xs text-slate">Scored bids: {acceptedMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(acceptedMatchScoreStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-red-700">Rejected Match Score</p>
+            <p className="text-xs text-slate">Scored bids: {rejectedMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(rejectedMatchScoreStats.avg)}</p>
           </div>
         </div>
       </section>

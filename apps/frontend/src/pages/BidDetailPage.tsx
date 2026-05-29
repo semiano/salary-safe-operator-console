@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { getTokenRole } from "../auth/token";
 import { useCases } from "../hooks/useCases";
 import { useBidDetail, useResendInvitation, useRevokeBid } from "../hooks/usePhase1Bids";
+import { copyToClipboard } from "../utils/clipboard";
 import { extractBenefitConfig } from "../utils/caseMeta";
 
 // ── Brand tokens ────────────────────────────────────────────────────────────────
@@ -30,6 +31,13 @@ function rankLabel(rank: number): { text: string; color: string; bg: string } {
   if (rank === 3) return { text: "High", color: "#166534", bg: "#dcfce7" };
   if (rank === 2) return { text: "Med", color: "#92400e", bg: "#fef3c7" };
   return { text: "Low", color: "#991b1b", bg: "#fee2e2" };
+}
+
+function formatMatchScore(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "Not scored yet";
+  const clamped = Math.max(0, Math.min(100, value));
+  const rounded = Math.round(clamped * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────────
@@ -341,9 +349,10 @@ export function BidDetailPage() {
                   type="button"
                   title="Copy apply URL"
                   onClick={() => {
-                    void navigator.clipboard.writeText(`${window.location.origin}/apply/${bid.token}`);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
+                    void copyToClipboard(`${window.location.origin}/apply/${bid.token}`).then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    });
                   }}
                   style={{
                     flexShrink: 0,
@@ -520,10 +529,17 @@ export function BidDetailPage() {
         )}
 
         {/* Decision reason */}
-        {bid.decision_reason && (
+        {(bid.decision_reason || bid.match_score !== null) && (
           <div style={section}>
+            <div style={labelStyle}>Match Score</div>
+            <p style={{ ...valueStyle, fontSize: 14, lineHeight: 1.4, marginBottom: 10 }}>{formatMatchScore(bid.match_score)}</p>
+
+            {bid.decision_reason ? (
+              <>
             <div style={labelStyle}>Decision Reason</div>
             <p style={{ ...valueStyle, fontSize: 14, lineHeight: 1.55 }}>{bid.decision_reason}</p>
+              </>
+            ) : null}
           </div>
         )}
 

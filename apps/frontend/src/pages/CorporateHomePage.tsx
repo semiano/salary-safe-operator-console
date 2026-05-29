@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+import { useRandomInviteForListing } from "../hooks/useApplications";
 import { useCases } from "../hooks/useCases";
-import { useBidStats, useGenerateRandomInvitation } from "../hooks/usePhase1Bids";
+import { useBidStats } from "../hooks/usePhase1Bids";
 import type { BidStats, CaseSummary } from "../types/api";
+import { addDebugLog } from "../utils/debugLog";
 
 // ── Brand tokens ──────────────────────────────────────────────────────────────
 const B = "#019529";
@@ -377,8 +379,9 @@ type SortKey = "newest" | "oldest" | "most_bids" | "most_invites";
 export function CorporateHomePage() {
   const { data: cases, isLoading } = useCases();
   const navigate = useNavigate();
-  const generateInvitation = useGenerateRandomInvitation();
+  const generateInvitation = useRandomInviteForListing();
   const [invitingCaseId, setInvitingCaseId] = useState<string | null>(null);
+  const [inviteStatusText, setInviteStatusText] = useState<string | null>(null);
 
   // Filter / sort state
   const [searchQuery, setSearchQuery] = useState("");
@@ -386,9 +389,7 @@ export function CorporateHomePage() {
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [activeStatFilter, setActiveStatFilter] = useState<string>("all");
 
-  // Action Queue
-  const [queueOpen, setQueueOpen] = useState(false);
-  // Collect bid stats for action queue (keyed by caseId)
+  // Action Queue state (sidebar no longer shown in this page; bell is in the global nav)
   const [statsMap, setStatsMap] = useState<Record<string, BidStats>>({});
 
   const total = cases?.length ?? 0;
@@ -399,7 +400,7 @@ export function CorporateHomePage() {
   const totalBids = Object.values(statsMap).reduce((s, v) => s + v.bids_received, 0);
 
   const actionItems = buildActionQueue(cases ?? [], statsMap);
-  const queueCount = actionItems.length;
+  void actionItems; // still computed for potential future use; sidebar removed
 
   // Stat cards definition — each maps to a statusFilter value (or special)
   const statCards = [
@@ -454,54 +455,6 @@ export function CorporateHomePage() {
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0, alignSelf: "center" }}>
-          {/* Action queue bell */}
-          <button
-            type="button"
-            onClick={() => setQueueOpen(true)}
-            title="Action Queue"
-            style={{
-              position: "relative",
-              width: 40,
-              height: 40,
-              borderRadius: "50%",
-              background: queueCount > 0 ? "#fff7ed" : "#f4f4f5",
-              border: `1.5px solid ${queueCount > 0 ? "#fb923c" : BORDER}`,
-              color: queueCount > 0 ? "#ea580c" : MUTED,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              transition: "background .15s",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = queueCount > 0 ? "#fed7aa" : "#e4e4e7"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = queueCount > 0 ? "#fff7ed" : "#f4f4f5"; }}
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M9 2a5 5 0 0 0-5 5v2.5L2.5 12h13L14 9.5V7a5 5 0 0 0-5-5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-              <path d="M7 12.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            {queueCount > 0 && (
-              <span style={{
-                position: "absolute",
-                top: -3,
-                right: -3,
-                background: "#ef4444",
-                color: "#fff",
-                borderRadius: "50%",
-                width: 17,
-                height: 17,
-                fontSize: 10,
-                fontWeight: 700,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                border: "2px solid #fff",
-              }}>
-                {queueCount > 9 ? "9+" : queueCount}
-              </span>
-            )}
-          </button>
-
           <Link
             to="/job-listings/new"
             style={{ background: B, color: "#fff", borderRadius: R_MD, padding: "10px 22px", fontSize: 14, fontWeight: 500, textDecoration: "none", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 7 }}
@@ -516,6 +469,22 @@ export function CorporateHomePage() {
       </div>
 
       {/* ── Stats cards (clickable filters) ── */}
+      {inviteStatusText ? (
+        <div
+          style={{
+            marginBottom: "0.75rem",
+            border: `1px solid ${BORDER}`,
+            borderRadius: R_MD,
+            background: "#f8fafc",
+            color: "#0f172a",
+            fontSize: 12,
+            padding: "8px 10px",
+          }}
+        >
+          {inviteStatusText}
+        </div>
+      ) : null}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10, marginBottom: "1.75rem" }}>
         {statCards.map((stat) => {
           const isSelected = activeStatFilter === stat.key && !stat.noFilter;
@@ -710,6 +679,7 @@ export function CorporateHomePage() {
                     budgetRange={budgetRange}
                     invitingCaseId={invitingCaseId}
                     setInvitingCaseId={setInvitingCaseId}
+                    setInviteStatusText={setInviteStatusText}
                     generateInvitation={generateInvitation}
                     navigate={navigate}
                     onStatsReady={(caseId, stats) =>
@@ -721,9 +691,6 @@ export function CorporateHomePage() {
           </tbody>
         </table>
       </div>
-
-      {/* ── Action Queue sidebar ── */}
-      {queueOpen && <ActionQueueSidebar items={actionItems} onClose={() => setQueueOpen(false)} />}
     </div>
   );
 }
@@ -738,6 +705,7 @@ function RowWithStats({
   budgetRange,
   invitingCaseId,
   setInvitingCaseId,
+  setInviteStatusText,
   generateInvitation,
   navigate,
   onStatsReady,
@@ -749,7 +717,8 @@ function RowWithStats({
   budgetRange: string;
   invitingCaseId: string | null;
   setInvitingCaseId: (id: string | null) => void;
-  generateInvitation: ReturnType<typeof useGenerateRandomInvitation>;
+  setInviteStatusText: (text: string | null) => void;
+  generateInvitation: ReturnType<typeof useRandomInviteForListing>;
   navigate: ReturnType<typeof useNavigate>;
   onStatsReady: (caseId: string, stats: BidStats) => void;
 }) {
@@ -801,7 +770,31 @@ function RowWithStats({
             disabled={invitingCaseId === cs.id}
             onClick={async () => {
               setInvitingCaseId(cs.id);
-              try { await generateInvitation.mutateAsync(cs.id); } finally { setInvitingCaseId(null); }
+              setInviteStatusText(null);
+              try {
+                const created = await generateInvitation.mutateAsync(cs.id);
+                const url = `${window.location.origin}/apply/${created.token}`;
+                try {
+                  await navigator.clipboard.writeText(url);
+                  setInviteStatusText(`Invitation generated for ${jobTitle}. Apply URL copied to clipboard.`);
+                } catch {
+                  setInviteStatusText(`Invitation generated for ${jobTitle}: ${url}`);
+                }
+                addDebugLog("info", "invitation", "Generated invitation link", {
+                  listingId: cs.id,
+                  bidId: created.id,
+                  token: created.token,
+                });
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                setInviteStatusText(`Failed to generate invitation for ${jobTitle}: ${message}`);
+                addDebugLog("error", "invitation", "Generate invitation link failed", {
+                  listingId: cs.id,
+                  error: message,
+                });
+              } finally {
+                setInvitingCaseId(null);
+              }
             }}
             style={{
               width: 32,

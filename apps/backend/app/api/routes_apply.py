@@ -8,10 +8,13 @@ Adds an invitation-code gate:
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
+from app.agent_runtime.providers import get_provider
+from app.core.db import SessionLocal, get_db
 from app.schemas.phase1_bid import (
     CandidateBidSubmitRequest,
     CandidateBidSubmitResponse,
@@ -20,9 +23,14 @@ from app.schemas.phase1_bid import (
     VerifyCodeResponse,
 )
 from app.services.phase1_bid_service import (
+    DECISION_ACCEPTED,
+    DECISION_PENDING,
+    DECISION_REJECTED,
     SUBMISSION_STATUS_INVITATION_PENDING,
     Phase1BidService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["apply"])
 
@@ -107,6 +115,7 @@ def verify_code(token: UUID, payload: VerifyCodeRequest, db: Session = Depends(g
 def submit_apply(
     token: UUID,
     payload: CandidateBidSubmitRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> CandidateBidSubmitResponse:
     bid, service = _lookup(token, db)
@@ -128,7 +137,84 @@ def submit_apply(
         wfh_importance_rank=payload.wfh_importance_rank,
     )
 
+    # Auto-trigger AI match in the background so the bid doesn't sit as "Pending AI match review"
+    background_tasks.add_task(_run_ai_match_for_bid, bid_id=bid.id)
+
     return CandidateBidSubmitResponse(
         ok=True,
         message="Your application has been submitted. The hiring team will be in touch.",
     )
+
+
+# ── Background AI match ───────────────────────────────────────────────────────
+
+async def _run_ai_match_for_bid(bid_id: UUID) -> None:
+    """Evaluate a single newly-submitted bid with the LLM and set its decision."""
+    db = SessionLocal()
+    try:
+        service = Phase1BidService(db)
+        bid = service.get_bid(bid_id)
+        if bid is None or bid.decision_status != DECISION_PENDING:
+            return
+
+        case = service.get_case(bid.case_id)
+        if case is None:
+            return
+
+        system_prompt = (
+            "You are evaluating a single phase 1 applicant bid for a hiring team. "
+            "Return JSON only with a single object containing keys: "
+            "match_score (number from 0 to 100), "
+            "decision_status (must be 'accepted' or 'rejected'), "
+            "decision_reason (one concise sentence), "
+            "response_message (professional message to send the candidate). "
+            "Do not reject candidates simply for having a target salary or for being below target. "
+            "Use affordability logic to filter out candidates who are too high on total compensation and benefits."
+        )
+        user_prompt = (
+            f"Evaluate this bid for the role: {case.title}\n"
+            f"Operator guidance: {case.operator_guidance}\n"
+            f"Candidate salary range: {bid.salary_min}–{bid.salary_max} {case.currency}\n"
+            f"Insurance rank: {bid.insurance_importance_rank}/3, "
+            f"PTO rank: {bid.pto_importance_rank}/3, "
+            f"WFH rank: {bid.wfh_importance_rank}/3"
+        )
+
+        provider = get_provider()
+        result = await provider.generate(
+            system_prompt=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+            temperature=0.1,
+        )
+
+        import json as _json
+        content = str(result.get("content", ""))
+        try:
+            start = content.find("{")
+            end = content.rfind("}")
+            if start == -1 or end <= start:
+                return
+            parsed = _json.loads(content[start : end + 1])
+        except Exception:
+            return
+
+        decision = str(parsed.get("decision_status", "")).strip().lower()
+        if decision not in {DECISION_ACCEPTED, DECISION_REJECTED}:
+            return
+
+        try:
+            match_score = float(parsed.get("match_score"))
+        except (TypeError, ValueError):
+            match_score = None
+
+        service.update_decision(
+            bid=bid,
+            decision_status=decision,
+            match_score=match_score,
+            decision_reason=str(parsed.get("decision_reason", "")).strip() or None,
+            response_message=str(parsed.get("response_message", "")).strip() or None,
+        )
+    except Exception as exc:
+        logger.warning("Auto AI match failed for bid %s: %s", bid_id, exc)
+    finally:
+        db.close()

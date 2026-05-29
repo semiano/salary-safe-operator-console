@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { getTokenRole } from "../auth/token";
-import { useAllApplications } from "../hooks/useApplications";
+import { useAiAutoRespond, useAllApplications } from "../hooks/useApplications";
 import type { Phase1Bid } from "../types/api";
 
 // ── Brand tokens ──────────────────────────────────────────────────────────────
@@ -122,95 +122,9 @@ function LegendPopover({ title, items }: { title: string; items: readonly { key:
 
 // ── Action Queue ──────────────────────────────────────────────────────────────
 
-type ActionItem = {
-  id: string;
-  urgency: "high" | "medium" | "low";
-  label: string;
-  sublabel: string;
-  href: string;
-};
-
-function buildActionQueue(bids: Phase1Bid[]): ActionItem[] {
-  const items: ActionItem[] = [];
-  for (const bid of bids) {
-    const name = bid.candidate_name ?? bid.candidate_email ?? bid.applicant_identifier;
-    const age = daysSince(bid.received_at);
-    if (bid.submission_status === "applicant_bid_submitted" && bid.decision_status === "pending") {
-      items.push({ id: `review-${bid.id}`, urgency: "high", label: "Bid awaiting review", sublabel: name, href: `/invitations/${bid.id}` });
-    }
-    if (bid.submission_status === "invitation_pending" && age >= 3) {
-      items.push({ id: `awaiting-${bid.id}`, urgency: "medium", label: "Invitation not yet accepted", sublabel: `${name} · invited ${age}d ago`, href: `/invitations/${bid.id}` });
-    }
-  }
-  const order = { high: 0, medium: 1, low: 2 } as const;
-  return items.sort((a, b) => order[a.urgency] - order[b.urgency]);
-}
-
-const URGENCY_DOT: Record<string, string> = { high: "#ef4444", medium: "#f59e0b", low: MUTED };
-
-function ActionQueueSidebar({ items, onClose }: { items: ActionItem[]; onClose: () => void }) {
-  const navigate = useNavigate();
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
-    function onClickOutside(e: MouseEvent) { if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose(); }
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onClickOutside);
-    return () => { document.removeEventListener("keydown", onKey); document.removeEventListener("mousedown", onClickOutside); };
-  }, [onClose]);
-
-  return (
-    <>
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.18)", zIndex: 40 }} />
-      <div ref={panelRef} style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 360, background: "#fff", boxShadow: "-4px 0 24px rgba(0,0,0,.12)", zIndex: 50, display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "1.25rem 1.25rem 1rem", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#111" }}>Action Queue</div>
-            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>
-              {items.length === 0 ? "All caught up" : `${items.length} item${items.length !== 1 ? "s" : ""} need attention`}
-            </div>
-          </div>
-          <button type="button" onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: MUTED, padding: 4, borderRadius: 6, lineHeight: 1 }} aria-label="Close action queue">
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
-          </button>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1rem" }}>
-          {items.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "3rem 1rem", color: MUTED, fontSize: 13 }}>
-              <div style={{ fontSize: 28, marginBottom: 12 }}>✓</div>
-              No action items right now. All applications are up to date.
-            </div>
-          ) : (
-            items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => { navigate(item.href); onClose(); }}
-                style={{ width: "100%", textAlign: "left", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: R_LG, padding: "0.875rem 1rem", marginBottom: 8, cursor: "pointer", fontFamily: "inherit", display: "flex", gap: 10, alignItems: "flex-start", transition: "background .12s" }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#fafafa"; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#fff"; }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: URGENCY_DOT[item.urgency], flexShrink: 0, marginTop: 5 }} />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111", lineHeight: 1.4 }}>{item.label}</div>
-                  <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{item.sublabel}</div>
-                </div>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ marginLeft: "auto", flexShrink: 0, marginTop: 3, color: FAINT }}>
-                  <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
-
 // ── Sort key ──────────────────────────────────────────────────────────────────
 
-type SortKey = "newest" | "oldest" | "submitted" | "name_az" | "name_za";
+type SortKey = "newest" | "oldest" | "submitted" | "name_az" | "name_za" | "job_az" | "job_za" | "recently_posted";
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -223,11 +137,9 @@ export function AllApplicationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [decisionFilter, setDecisionFilter] = useState("all");
   const [stageFilter, setStageFilter] = useState("all");
+  const [jobFilter, setJobFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [activeStatFilter, setActiveStatFilter] = useState("all");
-
-  // Action Queue
-  const [queueOpen, setQueueOpen] = useState(false);
 
   const bids = applications ?? [];
   const total = bids.length;
@@ -236,9 +148,6 @@ export function AllApplicationsPage() {
   const accepted  = bids.filter((b) => b.decision_status === "accepted").length;
   const rejected  = bids.filter((b) => b.decision_status === "rejected").length;
   const closed    = bids.filter((b) => b.submission_status === "response_sent").length;
-
-  const actionItems = buildActionQueue(bids);
-  const queueCount = actionItems.length;
 
   const statCards = [
     { key: "all",       label: "Total",     value: total,     desc: "all applications"    },
@@ -249,6 +158,15 @@ export function AllApplicationsPage() {
     { key: "closed",    label: "Closed",     value: closed,    desc: "responses sent"      },
   ];
 
+  // Unique sorted job titles for filter dropdown
+  const jobOptions = Array.from(
+    new Map(bids.map((b) => [b.job_title ?? "__na__", b.job_title])).entries()
+  ).sort(([a], [b]) => {
+    if (a === "__na__") return 1;
+    if (b === "__na__") return -1;
+    return a.localeCompare(b);
+  });
+
   const visibleBids = bids
     .filter((b) => {
       if (activeStatFilter === "submitted" && b.submission_status !== "applicant_bid_submitted") return false;
@@ -258,6 +176,8 @@ export function AllApplicationsPage() {
       if (activeStatFilter === "closed"    && b.submission_status !== "response_sent")            return false;
       if (decisionFilter !== "all" && b.decision_status !== decisionFilter)    return false;
       if (stageFilter    !== "all" && b.submission_status !== stageFilter)     return false;
+      if (jobFilter === "__na__" && b.job_title != null) return false;
+      if (jobFilter !== "all" && jobFilter !== "__na__" && b.job_title !== jobFilter) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const hay = ((b.candidate_name ?? "") + " " + (b.candidate_email ?? "") + " " + b.applicant_identifier).toLowerCase();
@@ -272,19 +192,28 @@ export function AllApplicationsPage() {
         const ts = (x: Phase1Bid) => x.candidate_submitted_at ? new Date(x.candidate_submitted_at).getTime() : 0;
         return ts(b) - ts(a);
       }
+      if (sortKey === "recently_posted") {
+        const tp = (x: Phase1Bid) => x.job_posted_at ? new Date(x.job_posted_at).getTime() : 0;
+        return tp(b) - tp(a);
+      }
       const na = (a.candidate_name ?? a.candidate_email ?? a.applicant_identifier).toLowerCase();
       const nb = (b.candidate_name ?? b.candidate_email ?? b.applicant_identifier).toLowerCase();
       if (sortKey === "name_az") return na.localeCompare(nb);
       if (sortKey === "name_za") return nb.localeCompare(na);
+      const ja = (a.job_title ?? "").toLowerCase();
+      const jb = (b.job_title ?? "").toLowerCase();
+      if (sortKey === "job_az") return ja.localeCompare(jb);
+      if (sortKey === "job_za") return jb.localeCompare(ja);
       return 0;
     });
 
-  const hasFilter = searchQuery.trim() !== "" || decisionFilter !== "all" || stageFilter !== "all" || activeStatFilter !== "all";
+  const hasFilter = searchQuery.trim() !== "" || decisionFilter !== "all" || stageFilter !== "all" || jobFilter !== "all" || activeStatFilter !== "all";
 
   function clearFilters() {
     setSearchQuery("");
     setDecisionFilter("all");
     setStageFilter("all");
+    setJobFilter("all");
     setActiveStatFilter("all");
   }
 
@@ -302,41 +231,6 @@ export function AllApplicationsPage() {
           <p style={{ fontSize: 14, color: MUTED, marginTop: 6, marginBottom: 0 }}>
             All candidate bid invitations across every job listing.
           </p>
-        </div>
-
-        {/* Action queue bell */}
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0, alignSelf: "center" }}>
-          <button
-            type="button"
-            onClick={() => setQueueOpen(true)}
-            title="Action Queue"
-            style={{
-              position: "relative",
-              width: 40,
-              height: 40,
-              borderRadius: "50%",
-              background: queueCount > 0 ? "#fff7ed" : "#f4f4f5",
-              border: `1.5px solid ${queueCount > 0 ? "#fb923c" : BORDER}`,
-              color: queueCount > 0 ? "#ea580c" : MUTED,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              transition: "background .15s",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = queueCount > 0 ? "#fed7aa" : "#e4e4e7"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = queueCount > 0 ? "#fff7ed" : "#f4f4f5"; }}
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-              <path d="M9 2a5 5 0 0 0-5 5v2.5L2.5 12h13L14 9.5V7a5 5 0 0 0-5-5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-              <path d="M7 12.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            {queueCount > 0 && (
-              <span style={{ position: "absolute", top: -3, right: -3, background: "#ef4444", color: "#fff", borderRadius: "50%", width: 17, height: 17, fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid #fff" }}>
-                {queueCount > 9 ? "9+" : queueCount}
-              </span>
-            )}
-          </button>
         </div>
       </div>
 
@@ -410,6 +304,19 @@ export function AllApplicationsPage() {
           <option value="response_sent">Closed</option>
         </select>
 
+        {/* Job filter */}
+        <select
+          value={jobFilter}
+          onChange={(e) => setJobFilter(e.target.value)}
+          style={{ padding: "7px 10px", fontSize: 13, border: `1px solid ${BORDER}`, borderRadius: R_MD, fontFamily: "inherit", color: "#111", background: "#fff", cursor: "pointer" }}
+        >
+          <option value="all">All Jobs</option>
+          <option value="__na__">N/A (no job)</option>
+          {jobOptions.filter(([key]) => key !== "__na__").map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+
         {/* Sort */}
         <select
           value={sortKey}
@@ -419,6 +326,9 @@ export function AllApplicationsPage() {
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
           <option value="submitted">Recently submitted</option>
+          <option value="recently_posted">Recently posted</option>
+          <option value="job_az">Job A → Z</option>
+          <option value="job_za">Job Z → A</option>
           <option value="name_az">Name A → Z</option>
           <option value="name_za">Name Z → A</option>
         </select>
@@ -444,10 +354,10 @@ export function AllApplicationsPage() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${BORDER}`, background: "#fafafa" }}>
-              <th style={{ padding: "0.6rem 1.25rem", textAlign: "left", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", width: "99%" }}>Candidate</th>
+              <th style={{ padding: "0.6rem 1.25rem", textAlign: "left", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Candidate</th>
+              <th style={{ padding: "0.6rem 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap", width: "99%" }}>Job Applied</th>
               <th style={{ padding: "0.6rem 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
-                Stage
-                <LegendPopover title="Application Stage" items={LIFECYCLE_LEGEND} />
+                Stage <LegendPopover title="Application Stage" items={LIFECYCLE_LEGEND} />
               </th>
               <th style={{ padding: "0.6rem 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
                 Decision
@@ -460,13 +370,13 @@ export function AllApplicationsPage() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={5} style={{ padding: "3rem", textAlign: "center", color: MUTED, fontSize: 14 }}>Loading applications…</td>
+                <td colSpan={6} style={{ padding: "3rem", textAlign: "center", color: MUTED, fontSize: 14 }}>Loading applications…</td>
               </tr>
             )}
 
             {!isLoading && total === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: "3rem", textAlign: "center" }}>
+                <td colSpan={6} style={{ padding: "3rem", textAlign: "center" }}>
                   <div style={{ width: 48, height: 48, borderRadius: "50%", background: BL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
                     <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
                       <rect x="3" y="5" width="16" height="13" rx="2" stroke={BT} strokeWidth="1.5" />
@@ -482,7 +392,7 @@ export function AllApplicationsPage() {
 
             {!isLoading && total > 0 && visibleBids.length === 0 && (
               <tr>
-                <td colSpan={5} style={{ padding: "2.5rem", textAlign: "center", color: MUTED, fontSize: 14 }}>
+                <td colSpan={6} style={{ padding: "2.5rem", textAlign: "center", color: MUTED, fontSize: 14 }}>
                   No applications match the current filters.{" "}
                   <button type="button" onClick={clearFilters} style={{ color: BT, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 500 }}>
                     Clear filters
@@ -512,9 +422,6 @@ export function AllApplicationsPage() {
           </tbody>
         </table>
       </div>
-
-      {/* ── Action Queue sidebar ── */}
-      {queueOpen && <ActionQueueSidebar items={actionItems} onClose={() => setQueueOpen(false)} />}
     </div>
   );
 }
@@ -535,6 +442,7 @@ function ApplicationRow({
   navigate: ReturnType<typeof useNavigate>;
 }) {
   const [hovered, setHovered] = useState(false);
+  const aiAutoRespond = useAiAutoRespond();
 
   return (
     <tr
@@ -544,9 +452,23 @@ function ApplicationRow({
       onClick={() => navigate(`/invitations/${bid.id}`)}
     >
       {/* Candidate */}
-      <td style={{ padding: "0.9rem 1.25rem", maxWidth: 0 }}>
+      <td style={{ padding: "0.9rem 1.25rem", whiteSpace: "nowrap" }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</div>
         <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{dateLabel}</div>
+      </td>
+
+      {/* Job Applied */}
+      <td style={{ padding: "0.9rem 12px", maxWidth: 0 }}>
+        {bid.job_title ? (
+          <>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bid.job_title}</div>
+            {bid.job_posted_at && (
+              <div style={{ fontSize: 11, color: FAINT, marginTop: 2 }}>Posted {formatDate(bid.job_posted_at)}</div>
+            )}
+          </>
+        ) : (
+          <span style={{ fontSize: 12, color: FAINT }}>—</span>
+        )}
       </td>
 
       {/* Stage */}
@@ -567,6 +489,31 @@ function ApplicationRow({
       {/* Actions */}
       <td style={{ padding: "0 1.25rem", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+          {isAdmin && bid.submission_status === "invitation_pending" && (
+            <button
+              type="button"
+              disabled={aiAutoRespond.isPending}
+              title="AI simulates candidate response and auto-matches (Admin only)"
+              onClick={(e) => {
+                e.stopPropagation();
+                aiAutoRespond.mutate(bid.id);
+              }}
+              style={{
+                background: aiAutoRespond.isPending ? "#fed7aa" : "#f97316",
+                color: "#fff",
+                border: "none",
+                borderRadius: R_MD,
+                padding: "5px 12px",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: aiAutoRespond.isPending ? "not-allowed" : "pointer",
+                whiteSpace: "nowrap",
+                opacity: aiAutoRespond.isPending ? 0.7 : 1,
+              }}
+            >
+              {aiAutoRespond.isPending ? "⏳ Working…" : "🤖 AI Auto-respond"}
+            </button>
+          )}
           <Link
             to={`/invitations/${bid.id}`}
             style={{ background: "#fff", color: "#111", border: `1px solid ${BORDER}`, borderRadius: R_MD, padding: "5px 12px", fontSize: 12, fontWeight: 500, textDecoration: "none", whiteSpace: "nowrap" }}

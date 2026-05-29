@@ -4,15 +4,112 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Light (default) ─────────────────────────────────────────────────────────*/
 :root {
   color-scheme: light;
+  --ss-bg: #f5f2eb;
+  --ss-bg-rgb: 245 242 235;
+  --ss-surface: #ffffff;
+  --ss-surface-rgb: 255 255 255;
+  --ss-ink: #121826;
+  --ss-ink-rgb: 18 24 38;
+  --ss-muted: #71717a;
+  --ss-muted-rgb: 113 113 122;
+  --ss-border: rgba(18, 24, 38, 0.15);
+  --ss-accent: #d96c2d;
+  --ss-accent-rgb: 217 108 45;
+  --ss-header-bg: rgba(255, 255, 255, 0.85);
+}
+
+/* ── Style themes ────────────────────────────────────────────────────────────*/
+/* Applied as data-theme="<name>" on <html> */
+
+[data-theme="midnight"] {
+  --ss-bg: #07090f;
+  --ss-bg-rgb: 7 9 15;
+  --ss-surface: #111827;
+  --ss-surface-rgb: 17 24 39;
+  --ss-ink: #c9d1e0;
+  --ss-ink-rgb: 201 209 224;
+  --ss-muted: #6b7280;
+  --ss-muted-rgb: 107 114 128;
+  --ss-border: rgba(255,255,255,0.08);
+  --ss-accent: #818cf8;
+  --ss-accent-rgb: 129 140 248;
+  --ss-header-bg: rgba(17, 24, 39, 0.82);
+}
+
+[data-theme="enterprise"] {
+  --ss-bg: #f0f4f8;
+  --ss-bg-rgb: 240 244 248;
+  --ss-surface: #ffffff;
+  --ss-surface-rgb: 255 255 255;
+  --ss-ink: #1e293b;
+  --ss-ink-rgb: 30 41 59;
+  --ss-muted: #64748b;
+  --ss-muted-rgb: 100 116 139;
+  --ss-border: rgba(30,41,59,0.14);
+  --ss-accent: #0f4c91;
+  --ss-accent-rgb: 15 76 145;
+  --ss-header-bg: rgba(255, 255, 255, 0.86);
+}
+
+[data-theme="warm"] {
+  --ss-bg: #fdf6ef;
+  --ss-bg-rgb: 253 246 239;
+  --ss-surface: #fff9f4;
+  --ss-surface-rgb: 255 249 244;
+  --ss-ink: #2c1a0e;
+  --ss-ink-rgb: 44 26 14;
+  --ss-muted: #8b6347;
+  --ss-muted-rgb: 139 99 71;
+  --ss-border: rgba(44,26,14,0.14);
+  --ss-accent: #c2410c;
+  --ss-accent-rgb: 194 65 12;
+  --ss-header-bg: rgba(255, 249, 244, 0.88);
+}
+
+[data-theme="vivid"] {
+  --ss-bg: #f0fdf4;
+  --ss-bg-rgb: 240 253 244;
+  --ss-surface: #ffffff;
+  --ss-surface-rgb: 255 255 255;
+  --ss-ink: #14532d;
+  --ss-ink-rgb: 20 83 45;
+  --ss-muted: #4b7a5f;
+  --ss-muted-rgb: 75 122 95;
+  --ss-border: rgba(20,83,45,0.14);
+  --ss-accent: #16a34a;
+  --ss-accent-rgb: 22 163 74;
+  --ss-header-bg: rgba(255, 255, 255, 0.86);
+}
+
+/* ── Base styles ─────────────────────────────────────────────────────────────*/
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 body {
   margin: 0;
   font-family: "IBM Plex Sans", system-ui, sans-serif;
-  background:
-    radial-gradient(circle at 10% 10%, rgba(217, 108, 45, 0.22), transparent 45%),
-    radial-gradient(circle at 80% 0%, rgba(18, 24, 38, 0.12), transparent 55%),
-    #f5f2eb;
+  background: var(--ss-bg);
+  color: var(--ss-ink);
+  transition: background 0.2s, color 0.2s;
+}
+
+input,
+textarea,
+select {
+  background: var(--ss-surface);
+  color: var(--ss-ink);
+}
+
+.bg-white {
+  background-color: rgb(var(--ss-surface-rgb) / 1) !important;
+}
+
+.bg-white\/80 {
+  background-color: color-mix(in srgb, var(--ss-surface) 80%, transparent) !important;
 }

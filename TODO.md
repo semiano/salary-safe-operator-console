@@ -60,6 +60,8 @@
 - UX enhancement (2026-03-25): added dedicated Run Configs page with top-nav access (`/configs`) for manual run config viewing/creation, plus `Ready to Run`/`Setup Required` badge next to Launch Run in case editor
 - UX enhancement (2026-03-25): added case-scoped deep link from case editor to run config management (`/configs?case_id=<id>`) and verified local runtime rebuilt/refreshed with latest UI changes
 
+- Patch 1.1 (2026-05-20): all 10 items implemented and deployed to VPS (159.65.237.234): copy-button fix, auto AI match, AI auto-respond, bell-in-banner, real mail + override, SaaS account menu, dark mode, style selector, benchmark compare popout, multi-tenant backend (tenants table + tenant_id FK, JWT claims, /api/tenants/me). DB at migration 0009_add_tenant_id (head).
+
 ## Blocked / Dependencies
 - `.copilot/copilot_instructions.md` is not present; using `.copilot/instructions.md` as the governing workspace instruction file
 - Live LLM negotiation requires provider credentials to be set in `.env` (`OPENAI_API_KEY` for OpenAI, or Azure OpenAI endpoint/key/version/deployment values)

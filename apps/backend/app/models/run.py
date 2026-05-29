@@ -11,7 +11,7 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 class NegotiationRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "negotiation_runs"
 
-    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("negotiation_cases.id"), nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("job_listings.id"), nullable=False)
     run_config_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("run_configs.id"), nullable=False)
     prompt_set_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("prompt_sets.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)

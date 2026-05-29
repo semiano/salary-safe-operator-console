@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useAutofillRole } from "../hooks/useCases";
 import { WorkdayBenchmarkPanel } from "../components/WorkdayBenchmarkPanel";
+import { copyToClipboard } from "../utils/clipboard";
 import { useCreateCase } from "../hooks/useCases";
 import { useParseInvitations } from "../hooks/useCases";
 import { useCaseDetail, useUpdateCase } from "../hooks/useCaseEditor";
@@ -15,6 +16,9 @@ const BB = "#b8dfc0";
 const BT = "#0a4a1a";
 const BS = "#2a6b3a";
 const NAVY = "#1B1035";
+const AI_ORANGE = "#f97316";
+const AI_ORANGE_DARK = "#ea580c";
+const AI_ORANGE_LIGHT = "#ffedd5";
 const BORDER = "rgba(0,0,0,.1)";
 const MUTED = "#666";
 const FAINT = "#999";
@@ -79,6 +83,18 @@ const WFH_OPTIONS = [
 ];
 
 type Invitation = { id: string; name: string; email: string };
+
+/** UUID v4 generator that works in both secure (HTTPS) and insecure (HTTP) contexts.
+ *  crypto.randomUUID() is restricted to secure contexts; crypto.getRandomValues() is not. */
+function genId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 
 // ─── Small helpers ─────────────────────────────────────────────────────────────
 
@@ -356,7 +372,7 @@ export function PostRolePage() {
       setInvitations(
         invList
           .filter((inv): inv is { name: string; email: string } => typeof inv === "object" && inv !== null)
-          .map((inv) => ({ id: crypto.randomUUID(), name: String(inv.name ?? ""), email: String(inv.email ?? "") }))
+          .map((inv) => ({ id: genId(), name: String(inv.name ?? ""), email: String(inv.email ?? "") }))
       );
     }
   }, [existingCase]);
@@ -364,6 +380,7 @@ export function PostRolePage() {
   // ── Autofill ─────────────────────────────────────────────────────────────────
 
   async function handleAutofill() {
+    setFormError(null);
     try {
       const data = await autofillRole.mutateAsync();
       setJobTitle(data.job_title);
@@ -393,12 +410,13 @@ export function PostRolePage() {
       setWfhSchedule(wfhMap[data.wfh_days_per_week] ?? "flexible");
       setInvitations(
         data.invitations.map((inv) => ({
-          id: crypto.randomUUID(),
+          id: genId(),
           name: inv.name,
           email: inv.email,
         }))
       );
-    } catch {
+    } catch (err) {
+      console.error("AI Autofill error:", err);
       setFormError("AI Autofill failed. Please try again.");
     }
   }
@@ -422,7 +440,7 @@ export function PostRolePage() {
     }
     setInvitations((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), name: inviteeName.trim(), email: emailTrimmed },
+      { id: genId(), name: inviteeName.trim(), email: emailTrimmed },
     ]);
     setInviteeName("");
     setInviteeEmail("");
@@ -442,7 +460,7 @@ export function PostRolePage() {
         const emailLower = inv.email.toLowerCase();
         if (!invitations.some((ex) => ex.email.toLowerCase() === emailLower) &&
             !added.some((a) => a.email.toLowerCase() === emailLower)) {
-          added.push({ id: crypto.randomUUID(), name: inv.name, email: inv.email });
+          added.push({ id: genId(), name: inv.name, email: inv.email });
         }
       }
       if (added.length === 0) {
@@ -653,7 +671,7 @@ export function PostRolePage() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => navigator.clipboard.writeText(url)}
+                          onClick={() => { void copyToClipboard(url); }}
                           style={{
                             flexShrink: 0,
                             background: "transparent",
@@ -833,12 +851,12 @@ export function PostRolePage() {
                 alignItems: "center",
                 gap: 8,
                 padding: "10px 18px",
-                background: autofillRole.isPending ? SURFACE : NAVY,
-                color: autofillRole.isPending ? MUTED : "#fff",
-                border: `1px solid ${autofillRole.isPending ? "#ddd" : NAVY}`,
+                background: autofillRole.isPending ? AI_ORANGE_LIGHT : AI_ORANGE,
+                color: autofillRole.isPending ? AI_ORANGE_DARK : "#fff",
+                border: `1px solid ${autofillRole.isPending ? "#fdba74" : AI_ORANGE_DARK}`,
                 borderRadius: R_LG,
                 fontSize: 13,
-                fontWeight: 500,
+                fontWeight: 600,
                 cursor: autofillRole.isPending ? "not-allowed" : "pointer",
                 fontFamily: "inherit",
                 transition: "opacity .15s",
@@ -854,10 +872,9 @@ export function PostRolePage() {
               ) : (
                 <>
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="M7 1.5l1.2 2.5 2.8.4-2 2 .46 2.8L7 7.9 4.54 9.2l.46-2.8-2-2 2.8-.4z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-                    <line x1="7" y1="10.5" x2="7" y2="12.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                    <line x1="4.5" y1="11.2" x2="3.5" y2="12.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                    <line x1="9.5" y1="11.2" x2="10.5" y2="12.9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    <rect x="1.25" y="1.25" width="11.5" height="11.5" rx="3" stroke="currentColor" strokeWidth="1.3" />
+                    <path d="M4 9.6V4.4h1.2l1.4 2.5 1.4-2.5h1.2v5.2H8v-3l-1.2 2.1H6.6L5.4 6.6v3H4z" fill="currentColor" />
+                    <path d="M10 9.6V4.4h2.8v1h-1.6v1.1h1.4v1h-1.4v2.1H10z" fill="currentColor" />
                   </svg>
                   AI Autofill
                 </>
@@ -893,9 +910,13 @@ export function PostRolePage() {
               borderRadius: R_MD,
               background: "rgba(241, 245, 249, 0.75)",
               padding: "10px 12px",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
             }}
           >
-            <WorkdayBenchmarkPanel />
+            <WorkdayBenchmarkPanel listingId={createdCaseId || (isEditMode ? editCaseId : undefined)} />
           </div>
       </div>
 

@@ -11,7 +11,7 @@ def _generate_invitation_code() -> str:
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.case import NegotiationCase, Phase1Bid
 
@@ -23,6 +23,16 @@ DECISION_ACCEPTED = "accepted"
 DECISION_REJECTED = "rejected"
 
 
+def _normalize_match_score(raw_value: object) -> float | None:
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not value == value:  # NaN guard
+        return None
+    return max(0.0, min(100.0, value))
+
+
 class Phase1BidService:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -30,8 +40,14 @@ class Phase1BidService:
     def get_case(self, case_id: UUID) -> NegotiationCase | None:
         return self.db.get(NegotiationCase, case_id)
 
+    def _require_case(self, case_id: UUID) -> NegotiationCase:
+        case = self.db.get(NegotiationCase, case_id)
+        if case is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job listing not found")
+        return case
+
     def list_all(self) -> list[Phase1Bid]:
-        stmt = select(Phase1Bid).order_by(Phase1Bid.created_at.desc())
+        stmt = select(Phase1Bid).options(selectinload(Phase1Bid.case)).order_by(Phase1Bid.created_at.desc())
         return list(self.db.scalars(stmt).all())
 
     def list_for_case(self, case_id: UUID) -> list[Phase1Bid]:
@@ -61,8 +77,10 @@ class Phase1BidService:
         pto_importance_rank: int,
         wfh_importance_rank: int,
     ) -> Phase1Bid:
+        case = self._require_case(case_id)
         bid = Phase1Bid(
             case_id=case_id,
+            tenant_id=case.tenant_id,
             applicant_identifier=applicant_identifier,
             salary_min=salary_min,
             salary_max=salary_max,
@@ -95,6 +113,7 @@ class Phase1BidService:
         *,
         bid: Phase1Bid,
         decision_status: str,
+        match_score: float | None,
         decision_reason: str | None,
         response_message: str | None,
     ) -> Phase1Bid:
@@ -102,6 +121,8 @@ class Phase1BidService:
         self._ensure_candidate_submission_exists(bid)
         previous_status = bid.decision_status
         bid.decision_status = decision_status
+        if match_score is not None:
+            bid.match_score = _normalize_match_score(match_score)
         bid.decision_reason = decision_reason
 
         if response_message is not None and response_message.strip():
@@ -181,6 +202,8 @@ class Phase1BidService:
             if decision_reason is not None:
                 decision_reason = str(decision_reason).strip()
 
+            match_score = _normalize_match_score(payload.get("match_score"))
+
             response_message = payload.get("response_message")
             if response_message is not None:
                 response_message = str(response_message).strip()
@@ -189,6 +212,7 @@ class Phase1BidService:
                 continue
 
             bid.decision_status = decision_status
+            bid.match_score = match_score
             bid.decision_reason = decision_reason
             bid.response_message = response_message or self.default_response_message(bid, decision_status, decision_reason)
             updated_ids.append(bid.id)
@@ -291,6 +315,7 @@ class Phase1BidService:
         return parsed
 
     def create_generated_bids(self, *, case_id: UUID, bid_payloads: list[dict]) -> list[Phase1Bid]:
+        case = self._require_case(case_id)
         existing_identifiers = {
             row[0].strip().lower()
             for row in self.db.execute(select(Phase1Bid.applicant_identifier).where(Phase1Bid.case_id == case_id)).all()
@@ -305,6 +330,7 @@ class Phase1BidService:
 
             bid = Phase1Bid(
                 case_id=case_id,
+                tenant_id=case.tenant_id,
                 applicant_identifier=identifier,
                 candidate_email=payload.get("candidate_email") or identifier,
                 candidate_name=payload.get("candidate_name"),
@@ -381,8 +407,10 @@ class Phase1BidService:
         wfh_importance_rank: int,
     ) -> Phase1Bid:
         """Create a fully-submitted invite-style bid without sending an invitation link."""
+        case = self._require_case(case_id)
         bid = Phase1Bid(
             case_id=case_id,
+            tenant_id=case.tenant_id,
             applicant_identifier=candidate_email,
             candidate_email=candidate_email,
             candidate_name=candidate_name,
@@ -411,8 +439,10 @@ class Phase1BidService:
         candidate_name: str | None,
     ) -> Phase1Bid:
         """Create a placeholder bid invitation — candidate fills the form later via token URL."""
+        case = self._require_case(case_id)
         bid = Phase1Bid(
             case_id=case_id,
+            tenant_id=case.tenant_id,
             applicant_identifier=candidate_email,
             candidate_email=candidate_email,
             candidate_name=candidate_name,

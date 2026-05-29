@@ -26,7 +26,7 @@ class OpenAIProvider:
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
@@ -58,7 +58,7 @@ class AzureOpenAIProvider:
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(url, headers=headers, params={"api-version": api_version}, json=payload)
             response.raise_for_status()
             data = response.json()

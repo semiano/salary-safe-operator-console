@@ -39,6 +39,18 @@ export function getTokenRole(): string | null {
   return typeof payload.role === "string" ? payload.role : null;
 }
 
+export function getTokenEmail(): string | null {
+  const payload = decodePayload();
+  if (!payload) return null;
+  return typeof payload.email === "string" ? payload.email : null;
+}
+
+export function getTokenClaim(claim: string): unknown | null {
+  const payload = decodePayload();
+  if (!payload) return null;
+  return claim in payload ? payload[claim] : null;
+}
+
 export function isAuthenticated(): boolean {
   const token = getAccessToken();
   if (!token) {

@@ -88,3 +88,17 @@ export function useRandomInviteForListing() {
     },
   });
 }
+
+// ── AI Auto-respond (admin only) ──────────────────────────────────────────────
+export function useAiAutoRespond() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (applicationId: string) =>
+      apiPost<Phase1Bid>(`/applications/${applicationId}/ai-auto-respond`, {}),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["listing-applications", updated.case_id] });
+      queryClient.invalidateQueries({ queryKey: ["phase1-bid-detail", updated.id] });
+    },
+  });
+}

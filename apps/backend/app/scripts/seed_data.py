@@ -13,6 +13,7 @@ from app.core.settings import get_settings
 from app.models.case import CaseParty, NegotiationCase, Phase1Bid
 from app.models.config import RunConfig
 from app.models.prompt import PromptSet
+from app.models.tenant import Tenant
 from app.models.user import User
 
 
@@ -30,6 +31,8 @@ PROMPT_SET_NAME = "SalarySafe System Baseline"
 LEGACY_PROMPT_SET_NAME = "PoC Baseline"
 PROMPT_SET_VERSION = "1.0"
 RUN_CONFIG_NAME = "baseline_hybrid_guided"
+SEED_TENANT_SLUG = "default"
+SEED_TENANT_ALIAS = "Default Tenant"
 
 SEEDED_NON_ADMIN_USERS: list[dict[str, str]] = [
     {
@@ -114,6 +117,12 @@ def seed() -> None:
     settings = get_settings()
 
     try:
+        tenant = session.scalar(select(Tenant).where(Tenant.slug == SEED_TENANT_SLUG))
+        if tenant is None:
+            tenant = Tenant(alias=SEED_TENANT_ALIAS, slug=SEED_TENANT_SLUG, plan="free")
+            session.add(tenant)
+            session.flush()
+
         existing_admin = session.scalar(select(User).where(User.email == settings.admin_seed_email))
         if existing_admin is None:
             session.add(
@@ -121,9 +130,12 @@ def seed() -> None:
                     email=settings.admin_seed_email,
                     password_hash=get_password_hash(settings.admin_seed_password),
                     role="admin",
+                    tenant_id=tenant.id,
                 )
             )
             session.flush()
+        elif existing_admin.tenant_id != tenant.id:
+            existing_admin.tenant_id = tenant.id
 
         seeded_users: list[dict[str, str]] = []
         for user_seed in SEEDED_NON_ADMIN_USERS:
@@ -134,9 +146,12 @@ def seed() -> None:
                         email=user_seed["email"],
                         password_hash=get_password_hash(user_seed["password"]),
                         role=user_seed["role"],
+                        tenant_id=tenant.id,
                     )
                 )
                 seeded_users.append(user_seed)
+            elif existing_user.tenant_id != tenant.id:
+                existing_user.tenant_id = tenant.id
 
         prompt_values = _load_seed_prompt_values()
 
@@ -173,7 +188,11 @@ def seed() -> None:
         created_case_ids: list[UUID] = []
 
         for seed_case in seed_cases:
-            existing_case = session.scalar(select(NegotiationCase).where(NegotiationCase.title == seed_case.title))
+            existing_case = session.scalar(
+                select(NegotiationCase)
+                .where(NegotiationCase.title == seed_case.title)
+                .where(NegotiationCase.tenant_id == tenant.id)
+            )
             if existing_case is not None:
                 created_case_ids.append(existing_case.id)
                 continue
@@ -185,6 +204,7 @@ def seed() -> None:
                 jurisdiction="US",
                 currency="USD",
                 created_by=None,
+                tenant_id=tenant.id,
             )
             session.add(case)
             session.flush()
@@ -308,6 +328,7 @@ def seed() -> None:
                     session.add(
                         Phase1Bid(
                             case_id=azure_presales_case.id,
+                            tenant_id=azure_presales_case.tenant_id,
                             applicant_identifier=bid_row["applicant_identifier"],
                             salary_min=bid_row["salary_min"],
                             salary_max=bid_row["salary_max"],

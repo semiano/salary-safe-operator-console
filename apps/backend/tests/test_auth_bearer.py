@@ -5,6 +5,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
 
 from app.core.db import get_db
 from app.core.security import create_access_token
@@ -32,7 +33,7 @@ class BearerAuthTests(TestCase):
         app.dependency_overrides.clear()
 
     def test_login_returns_bearer_token_payload(self) -> None:
-        fake_user = SimpleNamespace(id=uuid4())
+        fake_user = SimpleNamespace(id=uuid4(), role="admin")
         app.dependency_overrides[get_db] = lambda: _FakeDB()
 
         with patch("app.api.routes_auth.AuthService.authenticate", return_value=fake_user):
@@ -46,6 +47,21 @@ class BearerAuthTests(TestCase):
         self.assertIn("access_token", body)
         self.assertTrue(isinstance(body["access_token"], str) and len(body["access_token"]) > 20)
         self.assertEqual(body["token_type"], "bearer")
+
+    def test_login_returns_503_when_database_unavailable(self) -> None:
+        app.dependency_overrides[get_db] = lambda: _FakeDB()
+
+        with patch(
+            "app.api.routes_auth.AuthService.authenticate",
+            side_effect=OperationalError("SELECT 1", {}, Exception("db down")),
+        ):
+            response = self.client.post(
+                "/api/auth/login",
+                json={"email": "admin@salarysafe.dev", "password": "admin123!"},
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"detail": "Database unavailable"})
 
     def test_protected_data_endpoint_requires_bearer_token(self) -> None:
         response = self.client.get("/api/cases/health")

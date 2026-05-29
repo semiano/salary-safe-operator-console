@@ -152,6 +152,11 @@ docker compose down -v
 docker image prune -f
 ```
 
+Remote VPS note:
+
+1. Postgres is bound to VPS localhost (`127.0.0.1:5432`) rather than publicly exposed.
+2. For direct local troubleshooting access, open an SSH tunnel with `powershell -ExecutionPolicy Bypass -File .\vps-db-tunnel.ps1` and connect your DB client to `localhost:5432`.
+
 ## External dependencies
 
 Required to run negotiation with live model calls:

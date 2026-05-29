@@ -5,10 +5,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#121826",
-        paper: "#f5f2eb",
-        accent: "#d96c2d",
-        slate: "#2d3446",
+        ink: "rgb(var(--ss-ink-rgb) / <alpha-value>)",
+        paper: "rgb(var(--ss-bg-rgb) / <alpha-value>)",
+        accent: "rgb(var(--ss-accent-rgb) / <alpha-value>)",
+        slate: "rgb(var(--ss-muted-rgb) / <alpha-value>)",
+        surface: "rgb(var(--ss-surface-rgb) / <alpha-value>)",
       },
       fontFamily: {
         display: ["'Space Grotesk'", "ui-sans-serif", "system-ui", "sans-serif"],

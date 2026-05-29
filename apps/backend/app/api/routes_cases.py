@@ -1,5 +1,7 @@
 import json
+from random import choice
 from uuid import UUID
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -30,6 +32,20 @@ from app.services.run_service import RunService
 from app.workers.negotiation_runner import NegotiationRunner
 
 router = APIRouter(prefix="/cases", tags=["cases"], dependencies=[Depends(get_current_user)])
+
+COMMON_AUTOFILL_TITLES = {
+    "senior product marketing manager",
+    "software engineer",
+}
+
+AUTOFILL_FALLBACK_TITLES = [
+    "Senior Machine Learning Engineer",
+    "Principal Product Designer",
+    "Revenue Operations Manager",
+    "Data Platform Engineer",
+    "Enterprise Account Executive",
+    "Customer Success Lead",
+]
 
 
 @router.get("/health")
@@ -223,6 +239,7 @@ async def autofill_role() -> RoleAutofillResponse:
     provider = get_provider()
     system_prompt = (
         "You are a hiring data generator for SalarySafe, a confidential salary-matching platform. "
+        "Generate varied outputs across calls and avoid overused defaults like 'Senior Product Marketing Manager' and 'Software Engineer'. "
         "Return ONLY a valid JSON object — no markdown, no explanation — matching this exact schema:\n"
         "{\n"
         '  "job_title": string,\n'
@@ -243,15 +260,40 @@ async def autofill_role() -> RoleAutofillResponse:
         '  "invitations": array of 2-4 objects each with keys \"name\" (realistic full name) and \"email\" (realistic email)\n'
         "}"
     )
+    nonce = uuid4().hex[:8]
     result = await provider.generate(
         system_prompt=system_prompt,
-        messages=[{"role": "user", "content": "Generate a varied, realistic job listing for the SalarySafe hiring form. Pick a random industry and seniority level."}],
+        messages=[{"role": "user", "content": f"Generate a varied, realistic job listing for the SalarySafe hiring form. Pick a random industry and seniority level. Randomness token: {nonce}"}],
         temperature=0.85,
     )
     parsed = _extract_json_object(result.get("content", ""))
 
+    job_title = str(parsed.get("job_title") or "").strip()
+    if not job_title or job_title.casefold() in COMMON_AUTOFILL_TITLES:
+        retry_nonce = uuid4().hex[:8]
+        retry_result = await provider.generate(
+            system_prompt=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "Generate a realistic job listing that is clearly different from common defaults. "
+                        "Do not use job titles 'Senior Product Marketing Manager' or 'Software Engineer'. "
+                        f"Previous title was '{job_title or 'unknown'}'. Randomness token: {retry_nonce}"
+                    ),
+                }
+            ],
+            temperature=1.0,
+        )
+        parsed = _extract_json_object(retry_result.get("content", ""))
+        job_title = str(parsed.get("job_title") or "").strip()
+
     # Coerce and validate fields with safe fallbacks
-    job_title = str(parsed.get("job_title") or "Software Engineer").strip()
+    if job_title and job_title.casefold() in COMMON_AUTOFILL_TITLES:
+        job_title = ""
+
+    if not job_title:
+        job_title = choice(AUTOFILL_FALLBACK_TITLES)
     category = str(parsed.get("category") or "Engineering").strip()
     work_arrangement = str(parsed.get("work_arrangement") or "hybrid").strip()
     if work_arrangement not in {"remote", "hybrid", "onsite"}:
