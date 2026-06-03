@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 
 import { useAllApplications } from "../hooks/useApplications";
@@ -165,7 +166,10 @@ export function ActionQueueBell() {
         )}
       </button>
 
-      {open && <ActionQueueSidebar items={actionItems} onClose={() => setOpen(false)} />}
+      {open && createPortal(
+        <ActionQueueSidebar items={actionItems} onClose={() => setOpen(false)} />,
+        document.body,
+      )}
     </>
   );
 }

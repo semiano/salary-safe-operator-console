@@ -214,8 +214,9 @@ export function CandidateBidsPage() {
   const [filterInsuranceRank, setFilterInsuranceRank] = useState<"all" | "1" | "2" | "3">("all");
   const [filterPtoRank, setFilterPtoRank] = useState<"all" | "1" | "2" | "3">("all");
   const [filterWfhRank, setFilterWfhRank] = useState<"all" | "1" | "2" | "3">("all");
-
-
+  const [showCloseBiddingConfirm, setShowCloseBiddingConfirm] = useState(false);
+  const [closeBiddingResult, setCloseBiddingResult] = useState<{ sent: number; failed: number } | null>(null);
+  const [isSendingAll, setIsSendingAll] = useState(false);
 
   const isAdmin = getTokenRole() === "admin";
 
@@ -328,6 +329,13 @@ export function CandidateBidsPage() {
   const decisionRejectedCount = allBids.filter((bid) => bid.decision_status === "rejected").length;
   const openCount = allBids.filter((bid) => bid.submission_status === "applicant_bid_submitted").length;
   const closedCount = allBids.filter((bid) => bid.submission_status === "response_sent").length;
+  const sendableBids = (bids ?? []).filter((bid) => {
+    if (!hasCandidateBidSubmission(bid)) return false;
+    if (bid.submission_status === "response_sent") return false;
+    if (bid.decision_status === "pending") return false;
+    const responseMsg = normalizeResponseMessage(responseEdits[bid.id] ?? bid.response_message ?? "");
+    return responseMsg.length > 0;
+  });
 
   const invitationPendingCount = allBids.filter((bid) => bid.submission_status === "invitation_pending").length;
   const submittedBids = allBids.filter((bid) => bid.submission_status !== "invitation_pending");
@@ -404,6 +412,24 @@ export function CandidateBidsPage() {
     await sendResponse.mutateAsync(bidId);
   }
 
+  async function handleCloseBiddingAndSendAll() {
+    setShowCloseBiddingConfirm(false);
+    setCloseBiddingResult(null);
+    setIsSendingAll(true);
+    let sent = 0;
+    let failed = 0;
+    for (const bid of sendableBids) {
+      try {
+        await sendResponse.mutateAsync(bid.id);
+        sent++;
+      } catch {
+        failed++;
+      }
+    }
+    setIsSendingAll(false);
+    setCloseBiddingResult({ sent, failed });
+  }
+
   async function handleBulkDecide() {
     if (!selectedCaseId) return;
     if (!operatorGuidance.trim()) {
@@ -428,6 +454,7 @@ export function CandidateBidsPage() {
   }
 
   return (
+    <>
     <section className="relative left-1/2 w-screen max-w-[1480px] -translate-x-1/2 space-y-5 px-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -719,7 +746,7 @@ export function CandidateBidsPage() {
                 <HeaderWithTooltip title="Response Message" tooltip="Message intended to be sent to applicant. Can be edited and saved before terminal send." />
               </th>
               <th className="sticky top-0 z-20 bg-ink px-4 py-3 font-medium">
-                <HeaderWithTooltip title="Actions" tooltip="Per-bid operations: accept, reject, save message, and send response. Closed bids are locked." />
+                <HeaderWithTooltip title="Actions" tooltip="Per-bid operations: accept, reject, and save message. Use the Close Bidding button below to send all responses at once." />
               </th>
             </tr>
           </thead>
@@ -881,18 +908,7 @@ export function CandidateBidsPage() {
                         >
                           Reject
                         </button>
-                        <button
-                          className={`rounded-full px-3 py-1 text-xs font-medium text-paper disabled:opacity-50 ${hasPendingResponseEdit ? "bg-amber-600 ring-2 ring-amber-300" : "bg-ink"}`}
-                          type="button"
-                          disabled={!canSend || sendResponse.isPending}
-                          title={!canSend ? sendBlockedReason : hasPendingResponseEdit ? "Unsaved response draft will prompt for confirmation" : ""}
-                          onClick={() => handleSendResponse(bid.id, hasPendingResponseEdit)}
-                        >
-                          <span className="inline-flex items-center gap-2">
-                            {hasPendingResponseEdit && !isSent ? <span aria-hidden="true" className="h-2 w-2 rounded-full bg-white/90" /> : null}
-                            <span>{isSent ? "Response Sent" : hasPendingResponseEdit ? "Send Response*" : "Send Response"}</span>
-                          </span>
-                        </button>
+
                       </div>
                     </td>
                   </tr>
@@ -902,6 +918,30 @@ export function CandidateBidsPage() {
           </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h3 className="font-display text-lg text-red-900">Close Bidding &amp; Send Responses</h3>
+            <p className="mt-1 text-sm text-red-700">
+              Sends responses to all <strong>{sendableBids.length}</strong> ready bid{sendableBids.length !== 1 ? "s" : ""} and permanently closes bidding for each. This cannot be undone.
+            </p>
+          </div>
+          <button
+            className="rounded-full bg-red-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50"
+            type="button"
+            disabled={sendableBids.length === 0 || isSendingAll}
+            onClick={() => { setCloseBiddingResult(null); setShowCloseBiddingConfirm(true); }}
+          >
+            {isSendingAll ? "Sending..." : `Close Bidding & Send ${sendableBids.length} Response${sendableBids.length !== 1 ? "s" : ""}`}
+          </button>
+        </div>
+        {closeBiddingResult && (
+          <p className={`mt-3 rounded px-3 py-2 text-sm border ${ closeBiddingResult.failed > 0 ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-green-50 border-green-200 text-green-700"}`}>
+            Done: {closeBiddingResult.sent} sent{closeBiddingResult.failed > 0 ? `, ${closeBiddingResult.failed} failed` : "."}
+          </p>
+        )}
       </section>
 
       <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
@@ -986,5 +1026,36 @@ export function CandidateBidsPage() {
         </div>
       </section>
     </section>
+
+    {showCloseBiddingConfirm && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-ink">Close Bidding &amp; Send All Responses?</h3>
+          <p className="mt-2 text-sm text-slate">
+            This will send responses to <strong>{sendableBids.length} bid{sendableBids.length !== 1 ? "s" : ""}</strong> and permanently close bidding for each. Candidates will receive their response emails.
+          </p>
+          <p className="mt-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+            ⚠ This action cannot be undone.
+          </p>
+          <div className="mt-5 flex justify-end gap-3">
+            <button
+              className="rounded-full border border-ink/20 px-4 py-2 text-sm hover:bg-ink hover:text-paper"
+              type="button"
+              onClick={() => setShowCloseBiddingConfirm(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-full bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
+              type="button"
+              onClick={handleCloseBiddingAndSendAll}
+            >
+              Yes, Close Bidding &amp; Send All
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
