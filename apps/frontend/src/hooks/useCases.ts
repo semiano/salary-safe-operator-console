@@ -87,6 +87,17 @@ export function useUpdateCaseGuidance() {
   });
 }
 
+export function useUpdateCaseStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, status }: { caseId: string; status: string }) =>
+      apiPut<CaseSummary>(`/cases/${caseId}`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cases"] });
+    },
+  });
+}
+
 export type RoleAutofillData = {
   job_title: string;
   category: string;

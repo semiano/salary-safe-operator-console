@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { getTokenRole } from "../auth/token";
 import { WorkdayBenchmarkPanel } from "../components/WorkdayBenchmarkPanel";
 
-import { useCases, useUpdateCaseGuidance } from "../hooks/useCases";
+import { useCases, useUpdateCaseGuidance, useUpdateCaseStatus } from "../hooks/useCases";
 import {
   useBulkDecidePhase1Bids,
   usePhase1Bids,
@@ -228,6 +228,7 @@ export function CandidateBidsPage() {
   const saveResponse = useSavePhase1BidResponseMessage();
   const sendResponse = useSendPhase1BidResponse();
   const updateCaseGuidance = useUpdateCaseGuidance();
+  const updateCaseStatus = useUpdateCaseStatus();
   const { data: bids, isLoading: bidsLoading } = usePhase1Bids(selectedCaseId);
 
   useEffect(() => {
@@ -424,6 +425,13 @@ export function CandidateBidsPage() {
         sent++;
       } catch {
         failed++;
+      }
+    }
+    if (selectedCaseId) {
+      try {
+        await updateCaseStatus.mutateAsync({ caseId: selectedCaseId, status: "closed" });
+      } catch {
+        // status update failure is non-critical
       }
     }
     setIsSendingAll(false);
