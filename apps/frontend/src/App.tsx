@@ -123,18 +123,31 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-paper text-ink" style={{ paddingBottom: showAdminDebugDock ? 230 : 0 }}>
-      <header className="border-b border-ink/15 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-4">
+      <header
+        className="sticky top-0 z-30 border-b border-ink/15 bg-white/95 backdrop-blur-sm"
+        style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}
+      >
+        <div
+          className="mx-auto max-w-6xl px-6"
+          style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", height: 64 }}
+        >
+          {/* ── Zone 1: Brand ─────────────────────────────────────────────── */}
           <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight">SalarySafe</h1>
-            <p className="text-sm text-slate">Operator console for multi-agent salary negotiation runs</p>
+            <h1 className="font-display text-xl font-semibold tracking-tight leading-none">SalarySafe</h1>
+            <p className="text-xs text-slate leading-tight mt-0.5">Operator console for multi-agent salary negotiation runs</p>
           </div>
-          <nav className="flex flex-1 flex-wrap items-center gap-3 text-sm">
+
+          {/* ── Zone 2: Primary navigation ────────────────────────────────── */}
+          <nav aria-label="Primary navigation" className="flex items-center gap-1.5">
             <Link
-              className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white flex items-center gap-2"
+              className={`rounded-full border px-4 py-1.5 flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                location.pathname.startsWith("/job-listings")
+                  ? "border-ink/25 bg-ink/[0.07] text-ink"
+                  : "border-ink/15 text-ink/50 hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/80"
+              }`}
               to="/job-listings"
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <rect x="2" y="5" width="12" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
                 <path d="M5 5V3.5A1.5 1.5 0 0 1 6.5 2h3A1.5 1.5 0 0 1 11 3.5V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 <line x1="2" y1="9" x2="14" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -142,10 +155,14 @@ export function App() {
               Job Listings
             </Link>
             <Link
-              className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white flex items-center gap-2"
+              className={`rounded-full border px-4 py-1.5 flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                location.pathname.startsWith("/invitations")
+                  ? "border-ink/25 bg-ink/[0.07] text-ink"
+                  : "border-ink/15 text-ink/50 hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/80"
+              }`}
               to="/invitations"
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
                 <path d="M1.5 5.5l6.5 4.5 6.5-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -153,32 +170,43 @@ export function App() {
             </Link>
             <div style={{ position: "relative" }}>
               <button
-                className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white flex items-center gap-2"
+                className={`rounded-full border px-4 py-1.5 flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                  location.pathname.startsWith("/compensation-benchmarking")
+                    ? "border-ink/25 bg-ink/[0.07] text-ink"
+                    : "border-ink/15 text-ink/50 hover:border-ink/20 hover:bg-ink/[0.04] hover:text-ink/80"
+                }`}
                 type="button"
                 aria-label="Compensation Benchmarking"
                 aria-expanded={benchmarkOpen}
                 onClick={() => setBenchmarkOpen((v) => !v)}
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                   <path d="M2 13.5h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   <path d="M4 12V7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   <path d="M8 12V4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   <path d="M12 12V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
                 Compensation Benchmarking
+                <svg
+                  width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+                  style={{ opacity: 0.45, transform: benchmarkOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}
+                >
+                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
               {benchmarkOpen && (
                 <div
                   style={{
                     position: "absolute",
                     top: "calc(100% + 6px)",
-                    left: 0,
+                    left: "50%",
+                    transform: "translateX(-50%)",
                     minWidth: 220,
                     background: "var(--ss-surface)",
                     border: "1px solid var(--ss-border)",
                     color: "var(--ss-ink)",
-                    borderRadius: 8,
-                    boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+                    borderRadius: 10,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
                     zIndex: 100,
                     display: "flex",
                     flexDirection: "column",
@@ -193,13 +221,7 @@ export function App() {
                     <Link
                       key={to}
                       to={to}
-                      style={{
-                        padding: "8px 16px",
-                        color: "inherit",
-                        textDecoration: "none",
-                        display: "block",
-                        whiteSpace: "nowrap",
-                      }}
+                      style={{ padding: "8px 16px", color: "inherit", textDecoration: "none", display: "block", whiteSpace: "nowrap", fontSize: 13 }}
                       onClick={() => setBenchmarkOpen(false)}
                     >
                       <span style={{ marginRight: 8 }}>{icon}</span>{label}
@@ -208,16 +230,35 @@ export function App() {
                 </div>
               )}
             </div>
-            {/* Under Construction icon-only button */}
+          </nav>
+
+          {/* ── Zone 3: Utilities ─────────────────────────────────────────── */}
+          <div className="flex items-center justify-end gap-2">
+            {/* Under Construction icon button */}
             <div style={{ position: "relative" }}>
               <button
-                className="rounded-full border border-slate/20 px-4 py-2 hover:bg-slate hover:text-white flex items-center"
                 type="button"
                 aria-label="Under Construction"
+                aria-expanded={underConOpen}
                 onClick={() => setUnderConOpen((v) => !v)}
-                style={{ minWidth: 40, minHeight: 40, padding: 0, marginLeft: 8 }}
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: "50%",
+                  background: "transparent",
+                  border: "1px solid rgba(0,0,0,0.13)",
+                  color: "rgba(0,0,0,0.40)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  transition: "background 0.15s, border-color 0.15s",
+                  flexShrink: 0,
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.05)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
               >
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
                   <path d="M3 15l4.5-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   <path d="M10.5 4.5a3 3 0 0 1 4 4l-6 6a3 3 0 0 1-4-4l6-6Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                   <path d="M13 2l1 2-1 1-2-1 1-2Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
@@ -233,8 +274,8 @@ export function App() {
                     background: "var(--ss-surface)",
                     border: "1px solid var(--ss-border)",
                     color: "var(--ss-ink)",
-                    borderRadius: 8,
-                    boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+                    borderRadius: 10,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
                     zIndex: 100,
                     display: "flex",
                     flexDirection: "column",
@@ -249,13 +290,7 @@ export function App() {
                     <Link
                       key={to}
                       to={to}
-                      style={{
-                        padding: "8px 16px",
-                        color: "inherit",
-                        textDecoration: "none",
-                        display: "block",
-                        whiteSpace: "nowrap",
-                      }}
+                      style={{ padding: "8px 16px", color: "inherit", textDecoration: "none", display: "block", whiteSpace: "nowrap", fontSize: 13 }}
                       onClick={() => setUnderConOpen(false)}
                     >
                       <span style={{ marginRight: 8 }}>{icon}</span>{label}
@@ -264,17 +299,15 @@ export function App() {
                 </div>
               )}
             </div>
-            {/* Spacer to push profile menu to far right */}
-            <div className="flex-1" />
-            {/* Action queue bell */}
+            {/* Notification bell */}
             <ActionQueueBell />
-            {/* My Account menu (far right) */}
+            {/* User account menu */}
             <AccountMenu
               onLogout={onLogout}
               style={style}
               onSetStyle={setStyle}
             />
-          </nav>
+          </div>
         </div>
       </header>
 

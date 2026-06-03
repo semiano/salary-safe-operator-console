@@ -36,15 +36,34 @@ router = APIRouter(prefix="/cases", tags=["cases"], dependencies=[Depends(get_cu
 COMMON_AUTOFILL_TITLES = {
     "senior product marketing manager",
     "software engineer",
+    "senior software engineer",
+    "product manager",
+    "senior product manager",
+    "product marketing manager",
+    "data scientist",
+    "business analyst",
+    "marketing manager",
+    "digital marketing manager",
+    "growth marketing manager",
+    "account executive",
+    "customer success manager",
+    "revenue operations analyst",
+    "revenue operations manager",
+    "sales operations analyst",
+    "sales operations manager",
 }
 
 AUTOFILL_FALLBACK_TITLES = [
     "Senior Machine Learning Engineer",
     "Principal Product Designer",
-    "Revenue Operations Manager",
+    "Corporate Tax Manager",
     "Data Platform Engineer",
-    "Enterprise Account Executive",
-    "Customer Success Lead",
+    "Clinical Research Associate",
+    "Procurement Category Manager",
+    "Civil Infrastructure Project Manager",
+    "Hotel General Manager",
+    "Insurance Underwriter",
+    "Logistics Network Planner",
 ]
 
 
@@ -241,7 +260,18 @@ async def autofill_role() -> RoleAutofillResponse:
     provider = get_provider()
     system_prompt = (
         "You are a hiring data generator for SalarySafe, a confidential salary-matching platform. "
-        "Generate varied outputs across calls and avoid overused defaults like 'Senior Product Marketing Manager' and 'Software Engineer'. "
+        "Generate realistic, VARIED corporate job listings that span diverse industries and seniority levels. "
+        "Draw from sectors such as: healthcare, finance & banking, manufacturing, retail & consumer goods, "
+        "construction & real estate, energy & utilities, legal, education, logistics & supply chain, "
+        "hospitality & travel, media & entertainment, pharmaceuticals, government & public sector, "
+        "non-profit, agriculture, aerospace & defense, and insurance. "
+        "Do NOT over-index on technology, marketing, or revenue/sales-ops roles. "
+        "Vary seniority freely: entry-level, mid-career, senior IC, manager, director, VP, and C-suite. "
+        "NEVER output any of these overused defaults: "
+        "'Revenue Operations Analyst', 'Revenue Operations Manager', "
+        "'Sales Operations Analyst', 'Software Engineer', 'Senior Software Engineer', "
+        "'Senior Product Marketing Manager', 'Product Manager', 'Data Scientist', "
+        "'Marketing Manager', 'Account Executive', 'Customer Success Manager'. "
         "Return ONLY a valid JSON object — no markdown, no explanation — matching this exact schema:\n"
         "{\n"
         '  "job_title": string,\n'
@@ -265,7 +295,7 @@ async def autofill_role() -> RoleAutofillResponse:
     nonce = uuid4().hex[:8]
     result = await provider.generate(
         system_prompt=system_prompt,
-        messages=[{"role": "user", "content": f"Generate a varied, realistic job listing for the SalarySafe hiring form. Pick a random industry and seniority level. Randomness token: {nonce}"}],
+        messages=[{"role": "user", "content": f"Generate a varied, realistic job listing for the SalarySafe hiring form. Pick a random industry — favour non-tech sectors this time — and a random seniority level. Randomness token: {nonce}"}],
         temperature=0.85,
     )
     parsed = _extract_json_object(result.get("content", ""))
@@ -279,9 +309,10 @@ async def autofill_role() -> RoleAutofillResponse:
                 {
                     "role": "user",
                     "content": (
-                        "Generate a realistic job listing that is clearly different from common defaults. "
-                        "Do not use job titles 'Senior Product Marketing Manager' or 'Software Engineer'. "
-                        f"Previous title was '{job_title or 'unknown'}'. Randomness token: {retry_nonce}"
+                        "Generate a realistic job listing from a non-tech, non-marketing industry "
+                        "(e.g. healthcare, manufacturing, finance, logistics, hospitality, legal). "
+                        f"The previous title '{job_title or 'unknown'}' was rejected as too generic. "
+                        f"Randomness token: {retry_nonce}"
                     ),
                 }
             ],

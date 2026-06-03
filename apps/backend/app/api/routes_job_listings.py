@@ -5,7 +5,8 @@ Under-Construction pages.
 
 import json
 import re
-from uuid import UUID
+from random import choice
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -36,6 +37,52 @@ from app.services.run_service import RunService
 from app.workers.negotiation_runner import NegotiationRunner
 
 router = APIRouter(prefix="/job-listings", tags=["job-listings"], dependencies=[Depends(get_current_user)])
+
+# Titles the model tends to over-generate; trigger a retry if returned.
+COMMON_AUTOFILL_TITLES = {
+    "software engineer",
+    "senior software engineer",
+    "product manager",
+    "senior product manager",
+    "senior product marketing manager",
+    "product marketing manager",
+    "data scientist",
+    "business analyst",
+    "project manager",
+    "account executive",
+    "marketing manager",
+    "digital marketing manager",
+    "growth marketing manager",
+    "customer success manager",
+    "revenue operations analyst",
+    "revenue operations manager",
+    "sales operations analyst",
+    "sales operations manager",
+}
+
+# Last-resort fallbacks drawn from diverse non-tech sectors.
+AUTOFILL_FALLBACK_TITLES = [
+    "Supply Chain Logistics Coordinator",
+    "Clinical Research Associate",
+    "Mechanical Design Engineer",
+    "Retail District Manager",
+    "Civil Infrastructure Project Manager",
+    "Occupational Health & Safety Manager",
+    "Investment Banking Associate",
+    "Forensic Accountant",
+    "Corporate Tax Manager",
+    "Financial Crimes Compliance Officer",
+    "Hotel General Manager",
+    "Procurement Category Manager",
+    "Environmental Scientist",
+    "Aviation Operations Coordinator",
+    "Hospital Administrator",
+    "Renewable Energy Project Developer",
+    "Head of Talent Acquisition",
+    "Insurance Underwriter",
+    "Logistics Network Planner",
+    "Media Buying Director",
+]
 
 
 # ── Shared helpers ────────────────────────────────────────────────────────────
@@ -161,22 +208,65 @@ async def create_listing_from_prompt(
 
 @router.post("/autofill-role", response_model=RoleAutofillResponse)
 async def autofill_listing() -> RoleAutofillResponse:
+    """Generate a realistic job listing payload for the Post-a-Role form. Nothing is saved."""
     provider = get_provider()
     system_prompt = (
-        "You are a hiring data generator for SalarySafe. "
-        "Return ONLY valid JSON matching this schema exactly:\n"
+        "You are a hiring data generator for SalarySafe, a confidential salary-matching platform. "
+        "Generate realistic, VARIED corporate job listings that span diverse industries and seniority levels. "
+        "Draw from sectors such as: healthcare, finance & banking, manufacturing, retail & consumer goods, "
+        "construction & real estate, energy & utilities, legal, education, logistics & supply chain, "
+        "hospitality & travel, media & entertainment, pharmaceuticals, government & public sector, "
+        "non-profit, agriculture, aerospace & defense, and insurance. "
+        "Do NOT over-index on technology, marketing, or revenue/sales-ops roles. "
+        "Vary seniority freely: entry-level, mid-career, senior IC, manager, director, VP, and C-suite. "
+        "NEVER output any of these overused defaults: "
+        "'Revenue Operations Analyst', 'Revenue Operations Manager', "
+        "'Sales Operations Analyst', 'Software Engineer', 'Senior Software Engineer', "
+        "'Product Manager', 'Data Scientist', 'Marketing Manager', "
+        "'Business Analyst', 'Account Executive', 'Customer Success Manager'. "
+        "Return ONLY a valid JSON object — no markdown, no explanation — matching this exact schema:\n"
         '{"job_title":str,"category":str,"work_arrangement":"remote"|"hybrid"|"onsite",'
         '"location":str,"job_description":str,"responsibilities":[str],"currency":"USD"|"GBP"|"EUR"|"CAD"|"AUD",'
         '"budget_floor":int,"budget_ceiling":int,"pto_days":int,"wfh_days_per_week":int,'
         '"health_insurance":bool,"retirement_401k":bool,"dental_vision":bool,"stock_options":bool,'
         '"invitations":[{"name":str,"email":str}]}'
     )
+    nonce = uuid4().hex[:8]
     result = await provider.generate(
         system_prompt=system_prompt,
-        messages=[{"role": "user", "content": "Generate a varied, realistic job listing."}],
-        temperature=0.85,
+        messages=[{
+            "role": "user",
+            "content": (
+                "Generate a varied, realistic job listing for the SalarySafe hiring form. "
+                "Pick a random industry — favour non-tech sectors this time — and a random seniority level. "
+                f"Randomness token: {nonce}"
+            ),
+        }],
+        temperature=0.9,
     )
     p = _extract_json(result.get("content", ""))
+    job_title = str(p.get("job_title") or "").strip()
+
+    if not job_title or job_title.casefold() in COMMON_AUTOFILL_TITLES:
+        retry_nonce = uuid4().hex[:8]
+        retry_result = await provider.generate(
+            system_prompt=system_prompt,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Generate a realistic job listing from a non-tech, non-marketing industry "
+                    "(e.g. healthcare, manufacturing, finance, logistics, hospitality, legal). "
+                    f"The previous title '{job_title or 'unknown'}' was rejected as too generic. "
+                    f"Randomness token: {retry_nonce}"
+                ),
+            }],
+            temperature=1.0,
+        )
+        p = _extract_json(retry_result.get("content", ""))
+        job_title = str(p.get("job_title") or "").strip()
+
+    if not job_title or job_title.casefold() in COMMON_AUTOFILL_TITLES:
+        job_title = choice(AUTOFILL_FALLBACK_TITLES)
 
     def _int(v: object, default: int) -> int:
         try:
@@ -201,8 +291,8 @@ async def autofill_listing() -> RoleAutofillResponse:
         if isinstance(inv, dict) and inv.get("name") and inv.get("email")
     ]
     return RoleAutofillResponse(
-        job_title=str(p.get("job_title") or "Software Engineer").strip(),
-        category=str(p.get("category") or "Engineering").strip(),
+        job_title=job_title,
+        category=str(p.get("category") or "Operations").strip(),
         work_arrangement=arrangement,
         location=str(p.get("location") or "Remote").strip(),
         job_description=str(p.get("job_description") or "").strip(),

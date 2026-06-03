@@ -25,6 +25,8 @@ class SeedCase:
     candidate_confidential: dict[str, Any]
     company_public: dict[str, Any]
     company_confidential: dict[str, Any]
+    jurisdiction: str = "US"
+    currency: str = "USD"
 
 
 PROMPT_SET_NAME = "SalarySafe System Baseline"
@@ -41,6 +43,11 @@ SEEDED_NON_ADMIN_USERS: list[dict[str, str]] = [
         "role": "operator",
     },
     {
+        "email": "operator2@salarysafe.dev",
+        "password": "Operator2!salarysafe",
+        "role": "operator",
+    },
+    {
         "email": "reviewer1@salarysafe.dev",
         "password": "Reviewer1!salarysafe",
         "role": "reviewer",
@@ -49,6 +56,11 @@ SEEDED_NON_ADMIN_USERS: list[dict[str, str]] = [
         "email": "support1@salarysafe.dev",
         "password": "Support1!salarysafe",
         "role": "support",
+    },
+    {
+        "email": "demo@salarysafe.dev",
+        "password": "Demo1!salarysafe",
+        "role": "operator",
     },
 ]
 
@@ -69,6 +81,7 @@ def _load_seed_prompt_values() -> dict[str, str]:
 
 def _build_seed_cases() -> list[SeedCase]:
     return [
+        # ── Core scenario matrix ──────────────────────────────────────────────
         SeedCase(
             title="Easy agreement scenario",
             description="Candidate and company starts are already close.",
@@ -108,6 +121,99 @@ def _build_seed_cases() -> list[SeedCase]:
             candidate_confidential={"walkaway_base_salary": 210000},
             company_public={"budget_context": "Band-constrained"},
             company_confidential={"budget_floor": 175000, "budget_target": 190000, "budget_ceiling": 205000},
+        ),
+        # ── Microsoft Azure Pre-Sales (drives Phase 1 bid seed block) ─────────
+        SeedCase(
+            title="Microsoft Azure Pre-Sales Engineer",
+            description="Pre-sales technical role targeting mid-market cloud accounts.",
+            candidate_public={"desired_compensation": {"base_salary_target": 185000}, "strengths": ["cloud architecture", "customer demos", "Azure certifications"]},
+            candidate_confidential={"walkaway_base_salary": 168000},
+            company_public={"budget_context": "Competitive with FAANG pre-sales bands", "role_scope": "Mid-market Azure expansion"},
+            company_confidential={"budget_floor": 160000, "budget_target": 178000, "budget_ceiling": 195000},
+        ),
+        # ── International / multi-currency ───────────────────────────────────
+        SeedCase(
+            title="UK Finance Director – Series B Scale-up",
+            description="CFO-track role at a London-based fintech preparing for Series B close.",
+            candidate_public={"desired_compensation": {"base_salary_target": 130000}, "currency": "GBP"},
+            candidate_confidential={"walkaway_base_salary": 115000},
+            company_public={"budget_context": "Benchmarked against UK fintech quartile 3"},
+            company_confidential={"budget_floor": 108000, "budget_target": 120000, "budget_ceiling": 135000},
+            jurisdiction="GB",
+            currency="GBP",
+        ),
+        SeedCase(
+            title="EU Engineering Manager – Berlin SaaS",
+            description="People-manager role at a Berlin B2B SaaS company.",
+            candidate_public={"desired_compensation": {"base_salary_target": 115000}, "currency": "EUR"},
+            candidate_confidential={"walkaway_base_salary": 100000},
+            company_public={"budget_context": "DACH market rate"},
+            company_confidential={"budget_floor": 95000, "budget_target": 108000, "budget_ceiling": 118000},
+            jurisdiction="DE",
+            currency="EUR",
+        ),
+        SeedCase(
+            title="Canada Supply Chain Director – CPG",
+            description="Director-level supply chain role at a national consumer goods company.",
+            candidate_public={"desired_compensation": {"base_salary_target": 175000}, "currency": "CAD"},
+            candidate_confidential={"walkaway_base_salary": 158000},
+            company_public={"budget_context": "Canadian CPG director benchmark"},
+            company_confidential={"budget_floor": 155000, "budget_target": 168000, "budget_ceiling": 182000},
+            jurisdiction="CA",
+            currency="CAD",
+        ),
+        # ── Seniority extremes ────────────────────────────────────────────────
+        SeedCase(
+            title="Entry-level Financial Analyst",
+            description="Campus-hire analyst role with tight band and structured progression.",
+            candidate_public={"desired_compensation": {"base_salary_target": 72000}},
+            candidate_confidential={"walkaway_base_salary": 62000},
+            company_public={"budget_context": "Structured grad cohort band"},
+            company_confidential={"budget_floor": 58000, "budget_target": 65000, "budget_ceiling": 70000},
+        ),
+        SeedCase(
+            title="Chief Revenue Officer – Series C",
+            description="CRO hire with meaningful equity component and uncapped OTE.",
+            candidate_public={"desired_compensation": {"base_salary_target": 380000}, "equity_sensitivity": "high"},
+            candidate_confidential={"walkaway_base_salary": 320000, "minimum_equity_percent": 0.6},
+            company_public={"budget_context": "Board-approved exec compensation policy"},
+            company_confidential={"budget_floor": 300000, "budget_target": 350000, "budget_ceiling": 400000, "equity_pool_percent": 1.2},
+        ),
+        # ── Non-tech sector ───────────────────────────────────────────────────
+        SeedCase(
+            title="Hospital Operations Manager – NHS Trust",
+            description="Band 8a NHS management role covering two surgical wards.",
+            candidate_public={"desired_compensation": {"base_salary_target": 58000}, "currency": "GBP"},
+            candidate_confidential={"walkaway_base_salary": 52000},
+            company_public={"budget_context": "NHS Agenda for Change Band 8a spine"},
+            company_confidential={"budget_floor": 50952, "budget_target": 55000, "budget_ceiling": 60504},
+            jurisdiction="GB",
+            currency="GBP",
+        ),
+        SeedCase(
+            title="Pharmaceutical Regional Sales Manager",
+            description="Field sales manager covering the US Southeast region for a specialty pharma brand.",
+            candidate_public={"desired_compensation": {"base_salary_target": 145000}, "ote_expectation": 185000},
+            candidate_confidential={"walkaway_base_salary": 128000},
+            company_public={"budget_context": "Base + variable comp plan"},
+            company_confidential={"budget_floor": 120000, "budget_target": 138000, "budget_ceiling": 150000},
+        ),
+        # ── Edge cases ────────────────────────────────────────────────────────
+        SeedCase(
+            title="Counter-offer retention scenario",
+            description="Existing employee has a competing offer; company must decide whether to counter.",
+            candidate_public={"desired_compensation": {"base_salary_target": 195000}, "competing_offer": True},
+            candidate_confidential={"walkaway_base_salary": 175000, "current_base": 162000},
+            company_public={"budget_context": "Retention budget available but limited"},
+            company_confidential={"budget_floor": 165000, "budget_target": 178000, "budget_ceiling": 195000},
+        ),
+        SeedCase(
+            title="Relocation package disagreement",
+            description="Candidate demands full relocation reimbursement; company offers lump-sum only.",
+            candidate_public={"desired_compensation": {"base_salary_target": 160000}, "relocation_required": True, "relocation_cost_estimate": 45000},
+            candidate_confidential={"walkaway_base_salary": 148000, "minimum_relocation_reimbursement": 30000},
+            company_public={"budget_context": "Flat relocation allowance policy"},
+            company_confidential={"budget_floor": 145000, "budget_target": 155000, "budget_ceiling": 165000, "relocation_budget": 15000},
         ),
     ]
 
@@ -201,8 +307,8 @@ def seed() -> None:
                 title=seed_case.title,
                 description=seed_case.description,
                 status="ready",
-                jurisdiction="US",
-                currency="USD",
+                jurisdiction=seed_case.jurisdiction,
+                currency=seed_case.currency,
                 created_by=None,
                 tenant_id=tenant.id,
             )
