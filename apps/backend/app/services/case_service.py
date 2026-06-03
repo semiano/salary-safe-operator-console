@@ -19,6 +19,7 @@ class CaseService:
         jurisdiction: str | None,
         currency: str,
         created_by: UUID | None,
+        tenant_id: UUID,
         candidate_public: dict,
         candidate_confidential: dict,
         company_public: dict,
@@ -31,6 +32,7 @@ class CaseService:
             jurisdiction=jurisdiction,
             currency=currency,
             created_by=created_by,
+            tenant_id=tenant_id,
         )
         self.db.add(case)
         self.db.flush()
