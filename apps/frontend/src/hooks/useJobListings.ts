@@ -87,6 +87,20 @@ export function useUpdateJobListingGuidance() {
   });
 }
 
+export function useSetJobListingStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ listingId, status }: { listingId: string; status: string }) =>
+      apiPut<CaseSummary>(`/job-listings/${listingId}`, { status }),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["job-listings"] });
+      queryClient.invalidateQueries({ queryKey: ["job-listing", variables.listingId] });
+      queryClient.invalidateQueries({ queryKey: ["case", variables.listingId] });
+      queryClient.invalidateQueries({ queryKey: ["cases"] });
+    },
+  });
+}
+
 export function useAutofillJobListing() {
   return useMutation({
     mutationFn: () => apiPost<Record<string, unknown>>("/job-listings/autofill-role", {}),

@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { getTokenRole } from "../auth/token";
@@ -9,7 +9,9 @@ import { copyToClipboard } from "../utils/clipboard";
 import { useCreateCase } from "../hooks/useCases";
 import { useParseInvitations } from "../hooks/useCases";
 import { useCaseDetail, useUpdateCase } from "../hooks/useCaseEditor";
-import { useGenerateRandomInvitation, useSendPhase1BidInvitations } from "../hooks/usePhase1Bids";
+import { useJobListings, useJobListing, useSetJobListingStatus } from "../hooks/useJobListings";
+import { extractCaseMeta } from "../utils/caseMeta";
+import { usePhase1Bids, useGenerateRandomInvitation, useSendPhase1BidInvitations } from "../hooks/usePhase1Bids";
 
 // ─── Brand tokens (matching salarysafe.ai design language) ────────────────────
 const B = "#019529";
@@ -260,6 +262,16 @@ export function PostRolePage() {
   const { data: existingCase, isLoading: editLoading } = useCaseDetail(editCaseId);
   const autofillRole = useAutofillRole();
 
+  // Source-of-truth invitations (phase1 bids) and listing summary for this listing
+  const { data: existingBids = [] } = usePhase1Bids(effectiveListingId || null);
+  const { data: listingSummary } = useJobListing(effectiveListingId || null);
+  const { data: allListings = [] } = useJobListings();
+  const setListingStatus = useSetJobListingStatus();
+  const [cancelConfirmText, setCancelConfirmText] = useState("");
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showListingDropdown, setShowListingDropdown] = useState(false);
+  const [listingSearch, setListingSearch] = useState("");
+
   const isAdmin = getTokenRole() === "admin";
 
   // Role details
@@ -311,6 +323,49 @@ export function PostRolePage() {
   const [randomInviteStatus, setRandomInviteStatus] = useState<string | null>(null);
 
   const recordExists = isEditMode || Boolean(savedListingId);
+
+  // ── Details dirty tracking ───────────────────────────────────────────────────
+  const detailsSig = useMemo(
+    () =>
+      JSON.stringify([
+        jobTitle, category, workArrangement, location, jobDescription, responsibilities,
+        budgetFloorText, budgetCeilingText, currency, seniorityLevel, employmentType, visaSponsorship,
+        hasHealthInsurance, has401k, hasDentalVision, hasStockOptions, ptoUnlimited, ptoDaysText,
+        wfhSchedule, bonusTargetPct, healthPlan, retirementMatchPct, equityType, vestingSchedule,
+      ]),
+    [
+      jobTitle, category, workArrangement, location, jobDescription, responsibilities,
+      budgetFloorText, budgetCeilingText, currency, seniorityLevel, employmentType, visaSponsorship,
+      hasHealthInsurance, has401k, hasDentalVision, hasStockOptions, ptoUnlimited, ptoDaysText,
+      wfhSchedule, bonusTargetPct, healthPlan, retirementMatchPct, equityType, vestingSchedule,
+    ]
+  );
+  const [savedDetailsSig, setSavedDetailsSig] = useState<string | null>(null);
+  const [needBaseline, setNeedBaseline] = useState(false);
+  useEffect(() => {
+    if (needBaseline) {
+      setSavedDetailsSig(detailsSig);
+      setNeedBaseline(false);
+    }
+  }, [needBaseline, detailsSig]);
+  const detailsDirty = recordExists && savedDetailsSig !== null && savedDetailsSig !== detailsSig;
+
+  // ── Invitations: bids are the source of truth ────────────────────────────────
+  const existingInviteEmails = useMemo(
+    () =>
+      new Set(
+        existingBids
+          .map((b) => (b.candidate_email ?? "").toLowerCase().trim())
+          .filter(Boolean)
+      ),
+    [existingBids]
+  );
+  // Locally-added invitations not yet persisted as bids.
+  const pendingInvitations = useMemo(
+    () => invitations.filter((inv) => !existingInviteEmails.has(inv.email.toLowerCase().trim())),
+    [invitations, existingInviteEmails]
+  );
+  const totalInviteCount = existingBids.length + pendingInvitations.length;
 
   // Bulk invite paste
   const parseInvitations = useParseInvitations();
@@ -379,6 +434,8 @@ export function PostRolePage() {
           .map((inv) => ({ id: genId(), name: String(inv.name ?? ""), email: String(inv.email ?? "") }))
       );
     }
+    // Capture the loaded values as the clean baseline for dirty tracking.
+    setNeedBaseline(true);
   }, [existingCase]);
 
   // ── Autofill ─────────────────────────────────────────────────────────────────
@@ -442,6 +499,10 @@ export function PostRolePage() {
       setInviteError("That email is already on the invitation list.");
       return;
     }
+    if (existingInviteEmails.has(emailTrimmed.toLowerCase())) {
+      setInviteError("That candidate has already been invited.");
+      return;
+    }
     setInvitations((prev) => [
       ...prev,
       { id: genId(), name: inviteeName.trim(), email: emailTrimmed },
@@ -463,7 +524,8 @@ export function PostRolePage() {
       for (const inv of result.invitations) {
         const emailLower = inv.email.toLowerCase();
         if (!invitations.some((ex) => ex.email.toLowerCase() === emailLower) &&
-            !added.some((a) => a.email.toLowerCase() === emailLower)) {
+            !added.some((a) => a.email.toLowerCase() === emailLower) &&
+            !existingInviteEmails.has(emailLower)) {
           added.push({ id: genId(), name: inv.name, email: inv.email });
         }
       }
@@ -564,6 +626,12 @@ export function PostRolePage() {
     setFormError(null);
     if (!validateDetails()) return;
 
+    // Nothing changed on an existing record — skip the save and advance.
+    if (recordExists && !detailsDirty) {
+      setPhase("benchmark");
+      return;
+    }
+
     const payload = buildPayload();
     try {
       if (recordExists) {
@@ -572,6 +640,7 @@ export function PostRolePage() {
         const created = await createCase.mutateAsync(payload);
         setSavedListingId(created.id);
       }
+      setSavedDetailsSig(detailsSig);
       setPhase("benchmark");
     } catch (err) {
       setFormError(
@@ -610,10 +679,10 @@ export function PostRolePage() {
       return;
     }
     try {
-      if (invitations.length > 0) {
+      if (pendingInvitations.length > 0) {
         const createdBids = await sendInvitations.mutateAsync({
           caseId: effectiveListingId,
-          invitations: invitations.map((inv) => ({
+          invitations: pendingInvitations.map((inv) => ({
             candidate_email: inv.email,
             candidate_name: inv.name || null,
           })),
@@ -621,8 +690,8 @@ export function PostRolePage() {
         setCreatedInviteTokens((prev) => [
           ...prev,
           ...createdBids.map((bid, i) => ({
-            name: invitations[i]?.name ?? bid.candidate_name ?? "",
-            email: bid.candidate_email ?? invitations[i]?.email ?? "",
+            name: pendingInvitations[i]?.name ?? bid.candidate_name ?? "",
+            email: bid.candidate_email ?? pendingInvitations[i]?.email ?? "",
             token: bid.token,
           })),
         ]);
@@ -630,6 +699,26 @@ export function PostRolePage() {
       setShowSuccess(true);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to send invitations. Please try again.");
+    }
+  }
+
+  async function handleConfirmCancel() {
+    if (!effectiveListingId) return;
+    try {
+      await setListingStatus.mutateAsync({ listingId: effectiveListingId, status: "cancelled" });
+      setShowCancelModal(false);
+      setCancelConfirmText("");
+    } catch {
+      /* surfaced via setListingStatus.isError */
+    }
+  }
+
+  async function handleUncancel() {
+    if (!effectiveListingId) return;
+    try {
+      await setListingStatus.mutateAsync({ listingId: effectiveListingId, status: "active" });
+    } catch {
+      /* surfaced via setListingStatus.isError */
     }
   }
 
@@ -831,6 +920,28 @@ export function PostRolePage() {
 
   // ── Main form ────────────────────────────────────────────────────────────────
 
+  const currentStatus = (listingSummary?.status ?? existingCase?.status ?? "active").toLowerCase();
+  const isCancelled = currentStatus === "cancelled";
+  const listingCreatedAt = listingSummary?.created_at ?? null;
+  const phaseTitle =
+    phase === "details"
+      ? "Step 1: role details & confidential compensation"
+      : phase === "benchmark"
+      ? "Step 2: benchmark compensation"
+      : "Step 3: invite candidates";
+  const phaseDesc =
+    phase === "details"
+      ? "Capture the role, benefits, and your confidential salary band. These figures stay private — candidates only ever see a directional alignment label."
+      : phase === "benchmark"
+      ? "Compare this role against internal HRIS cohorts and external market evidence, then apply an AI-grounded compensation recommendation."
+      : "Invite candidates with secure, personalised links. Each invitee submits salary expectations privately — never revealed back to you as raw figures.";
+  const filteredListings = allListings.filter((l) => {
+    if (!listingSearch.trim()) return true;
+    const m = extractCaseMeta(l);
+    const hay = `${m.jobTitle ?? ""} ${l.title} ${l.jurisdiction ?? ""} ${l.status}`.toLowerCase();
+    return hay.includes(listingSearch.toLowerCase());
+  });
+
   return (
     <div style={{ fontFamily: "inherit" }}>
       {/* ── Breadcrumb ── */}
@@ -847,114 +958,404 @@ export function PostRolePage() {
         <span style={{ fontSize: 13, color: "#111", fontWeight: 500 }}>{isEditMode ? "Edit Job Listing" : "Post a New Job Listing"}</span>
       </div>
 
-      {/* ── Page header ── */}
-      <div style={{ marginBottom: "2rem" }}>
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            background: BL,
-            border: `1px solid ${BB}`,
-            borderRadius: 99,
-            padding: "5px 14px",
-            fontSize: 12,
-            fontWeight: 500,
-            color: BT,
-            marginBottom: "1rem",
-          }}
-        >
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: B, flexShrink: 0, display: "inline-block" }} />
-          Confidential salary matching
-        </div>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-            <div>
-              <h1
+      {/* ── Phase explanation header (blue / purple) ── */}
+      <section
+        style={{
+          borderRadius: 20,
+          padding: "22px 26px",
+          background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 55%, #1e293b 100%)",
+          color: "#f8fafc",
+          boxShadow: "0 16px 44px rgba(30,27,75,0.22)",
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-start", justifyContent: "space-between", gap: 18 }}>
+          <div style={{ flex: "1 1 360px", minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#c4b5fd" }}>
+              {isEditMode ? "Job Listing Editor" : "New Job Listing"}
+            </div>
+            <h1 style={{ margin: "8px 0 6px", fontSize: 26, fontWeight: 800, lineHeight: 1.15 }}>{phaseTitle}</h1>
+            <p style={{ margin: 0, fontSize: 14, color: "#cbd5e1", lineHeight: 1.6, maxWidth: 600 }}>{phaseDesc}</p>
+            {phase === "details" && (
+              <button
+                type="button"
+                onClick={handleAutofill}
+                disabled={autofillRole.isPending}
                 style={{
-                  fontSize: 32,
-                  fontWeight: 700,
-                  letterSpacing: "-.03em",
-                  lineHeight: 1.15,
-                  color: "#111",
-                  marginBottom: 8,
+                  marginTop: 14,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "9px 16px",
+                  background: autofillRole.isPending ? AI_ORANGE_LIGHT : AI_ORANGE,
+                  color: autofillRole.isPending ? AI_ORANGE_DARK : "#fff",
+                  border: `1px solid ${autofillRole.isPending ? "#fdba74" : AI_ORANGE_DARK}`,
+                  borderRadius: R_LG,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: autofillRole.isPending ? "not-allowed" : "pointer",
+                  fontFamily: "inherit",
+                  transition: "opacity .15s",
                 }}
               >
-                {isEditMode ? "Edit job listing" : "Post a New Job Listing"}
-              </h1>
-              <p style={{ fontSize: 14, color: MUTED, lineHeight: 1.7, maxWidth: 520 }}>
-                {isEditMode
-                  ? "Work through each step below — update the role details, benchmark compensation, and manage candidate invitations."
-                  : "Follow the guided steps: enter the role details and confidential salary band, benchmark compensation, then invite candidates. Your figures stay confidential — only alignment is shared."}
-              </p>
-            </div>
-            {/* Header actions: matching-works popover + AI Autofill */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
-              <MatchingInfoPopover />
-              {phase === "details" && (
-                <button
-                  type="button"
-                  onClick={handleAutofill}
-                  disabled={autofillRole.isPending}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "10px 18px",
-                    background: autofillRole.isPending ? AI_ORANGE_LIGHT : AI_ORANGE,
-                    color: autofillRole.isPending ? AI_ORANGE_DARK : "#fff",
-                    border: `1px solid ${autofillRole.isPending ? "#fdba74" : AI_ORANGE_DARK}`,
-                    borderRadius: R_LG,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: autofillRole.isPending ? "not-allowed" : "pointer",
-                    fontFamily: "inherit",
-                    transition: "opacity .15s",
-                  }}
-                >
-                  {autofillRole.isPending ? (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: "spin 1s linear infinite" }}>
-                        <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="22" strokeDashoffset="8" strokeLinecap="round" />
-                      </svg>
-                      Generating…
-                    </>
-                  ) : (
-                    <>
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                        <rect x="1.25" y="1.25" width="11.5" height="11.5" rx="3" stroke="currentColor" strokeWidth="1.3" />
-                        <path d="M4 9.6V4.4h1.2l1.4 2.5 1.4-2.5h1.2v5.2H8v-3l-1.2 2.1H6.6L5.4 6.6v3H4z" fill="currentColor" />
-                        <path d="M10 9.6V4.4h2.8v1h-1.6v1.1h1.4v1h-1.4v2.1H10z" fill="currentColor" />
-                      </svg>
-                      AI Autofill
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
+                {autofillRole.isPending ? (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: "spin 1s linear infinite" }}>
+                      <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="22" strokeDashoffset="8" strokeLinecap="round" />
+                    </svg>
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <rect x="1.25" y="1.25" width="11.5" height="11.5" rx="3" stroke="currentColor" strokeWidth="1.3" />
+                      <path d="M4 9.6V4.4h1.2l1.4 2.5 1.4-2.5h1.2v5.2H8v-3l-1.2 2.1H6.6L5.4 6.6v3H4z" fill="currentColor" />
+                      <path d="M10 9.6V4.4h2.8v1h-1.6v1.1h1.4v1h-1.4v2.1H10z" fill="currentColor" />
+                    </svg>
+                    AI Autofill
+                  </>
+                )}
+              </button>
+            )}
           </div>
-          {phase === "details" && autofillRole.isSuccess && (
+
+          {/* Listing selector */}
+          <div style={{ minWidth: 260, position: "relative" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#a5b4fc", letterSpacing: ".08em", textTransform: "uppercase", marginBottom: 6 }}>
+              Job listing
+            </div>
             <div
+              onClick={() => setShowListingDropdown((v) => !v)}
               style={{
-                marginTop: "1rem",
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.25)",
+                borderRadius: 10,
                 padding: "10px 14px",
-                background: BL,
-                border: `1px solid ${BB}`,
-                borderRadius: R_MD,
-                fontSize: 13,
-                color: BT,
                 display: "flex",
                 alignItems: "center",
-                gap: 8,
+                justifyContent: "space-between",
+                cursor: "pointer",
+                color: "#fff",
+                fontSize: 14,
+                fontWeight: 600,
               }}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="6" stroke={B} strokeWidth="1.3" />
-                <polyline points="4,7 6.5,9.5 10.5,5" stroke={B} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {recordExists
+                  ? `${jobTitle || listingSummary?.title || "Untitled listing"}`
+                  : "New listing (unsaved)"}
+              </span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ marginLeft: 8, opacity: 0.6, flexShrink: 0 }}>
+                <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              Fields filled by AI — review and edit anything before posting.
             </div>
-          )}
-      </div>
+
+            {showListingDropdown && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: 0,
+                  right: 0,
+                  background: "#fff",
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: 12,
+                  boxShadow: "0 12px 32px rgba(0,0,0,0.18)",
+                  zIndex: 200,
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ padding: "8px 10px", borderBottom: `1px solid ${BORDER}` }}>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={listingSearch}
+                    onChange={(e) => setListingSearch(e.target.value)}
+                    placeholder="Search by title, role, location…"
+                    style={{ width: "100%", border: "none", outline: "none", fontSize: 13, color: NAVY, padding: "4px 0", fontFamily: "inherit" }}
+                  />
+                </div>
+                <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                  <div
+                    onClick={() => {
+                      setShowListingDropdown(false);
+                      setListingSearch("");
+                      navigate("/job-listings/new");
+                    }}
+                    style={{ padding: "10px 14px", cursor: "pointer", fontSize: 13, fontWeight: 600, color: BT, borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <line x1="6" y1="2" x2="6" y2="10" stroke={B} strokeWidth="1.6" strokeLinecap="round" />
+                      <line x1="2" y1="6" x2="10" y2="6" stroke={B} strokeWidth="1.6" strokeLinecap="round" />
+                    </svg>
+                    Start a new listing
+                  </div>
+                  {filteredListings.length === 0 ? (
+                    <div style={{ padding: "12px 14px", fontSize: 13, color: MUTED }}>No listings found.</div>
+                  ) : (
+                    filteredListings.map((l) => {
+                      const m = extractCaseMeta(l);
+                      const isSelected = l.id === effectiveListingId;
+                      return (
+                        <div
+                          key={l.id}
+                          onClick={() => {
+                            setShowListingDropdown(false);
+                            setListingSearch("");
+                            setPhase("details");
+                            setSavedListingId(null);
+                            setSavedDetailsSig(null);
+                            navigate(`/job-listings/new?edit=${l.id}`);
+                          }}
+                          style={{
+                            padding: "10px 14px",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            color: NAVY,
+                            background: isSelected ? "#eef2ff" : "#fff",
+                            borderBottom: `1px solid ${BORDER}`,
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = isSelected ? "#eef2ff" : "#fff")}
+                        >
+                          <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {m.jobTitle || l.title}
+                          </div>
+                          <div style={{ fontSize: 11, color: MUTED }}>
+                            {l.jurisdiction ?? "—"} · {l.currency} · {l.status}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Persistent listing info + cancel panel (edit / saved mode) ── */}
+      {recordExists && (
+        <div
+          style={{
+            background: "#fff",
+            border: `1px solid ${isCancelled ? "#fecaca" : BORDER}`,
+            borderLeft: `4px solid ${isCancelled ? "#dc2626" : B}`,
+            borderRadius: R_LG,
+            padding: "14px 18px",
+            marginBottom: "1.5rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap", minWidth: 0 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Listing</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 280 }}>
+                {jobTitle || listingSummary?.title || "Untitled listing"}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Status</div>
+              <span
+                style={{
+                  display: "inline-block",
+                  marginTop: 2,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "2px 10px",
+                  borderRadius: 99,
+                  background: isCancelled ? "#fee2e2" : BL,
+                  color: isCancelled ? "#b91c1c" : BT,
+                }}
+              >
+                {isCancelled ? "Cancelled" : "Active"}
+              </span>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Created</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginTop: 2 }}>
+                {listingCreatedAt
+                  ? new Date(listingCreatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                  : "—"}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Invitations</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginTop: 2 }}>{existingBids.length}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <MatchingInfoPopover />
+            {isCancelled ? (
+              <button
+                type="button"
+                onClick={handleUncancel}
+                disabled={setListingStatus.isPending}
+                style={{
+                  padding: "9px 16px",
+                  background: BL,
+                  border: `1px solid ${BB}`,
+                  borderRadius: R_MD,
+                  color: BT,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: setListingStatus.isPending ? "not-allowed" : "pointer",
+                  opacity: setListingStatus.isPending ? 0.6 : 1,
+                  fontFamily: "inherit",
+                }}
+              >
+                {setListingStatus.isPending ? "Restoring…" : "Un-cancel listing"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setCancelConfirmText(""); setShowCancelModal(true); }}
+                style={{
+                  padding: "9px 16px",
+                  background: "#fff",
+                  border: "1px solid #fca5a5",
+                  borderRadius: R_MD,
+                  color: "#dc2626",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Cancel job listing
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Cancel confirmation modal (heavy confirmation) ── */}
+      {showCancelModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 3000,
+            padding: 20,
+          }}
+          onClick={() => { if (!setListingStatus.isPending) setShowCancelModal(false); }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: R_LG,
+              padding: "1.75rem",
+              maxWidth: 460,
+              width: "100%",
+              boxShadow: "0 24px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 2L18.5 17H1.5L10 2z" stroke="#dc2626" strokeWidth="1.5" strokeLinejoin="round" />
+                  <line x1="10" y1="8" x2="10" y2="12" stroke="#dc2626" strokeWidth="1.5" strokeLinecap="round" />
+                  <circle cx="10" cy="14.5" r="0.9" fill="#dc2626" />
+                </svg>
+              </div>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#111" }}>Cancel this job listing?</h3>
+            </div>
+            <p style={{ fontSize: 13.5, color: MUTED, lineHeight: 1.65, marginBottom: 16 }}>
+              Cancelling marks <strong style={{ color: "#111" }}>{jobTitle || listingSummary?.title || "this listing"}</strong> as no longer active.
+              {existingBids.length > 0 && ` It currently has ${existingBids.length} candidate invitation${existingBids.length === 1 ? "" : "s"}.`}{" "}
+              You can un-cancel it later. To confirm, type <strong style={{ color: "#dc2626" }}>CANCEL</strong> below.
+            </p>
+            <input
+              type="text"
+              value={cancelConfirmText}
+              onChange={(e) => setCancelConfirmText(e.target.value)}
+              placeholder="Type CANCEL to confirm"
+              style={{ ...inputStyle(), marginBottom: 8, borderColor: "#fca5a5" }}
+            />
+            {setListingStatus.isError && (
+              <p style={{ fontSize: 12, color: "#b00020", margin: "0 0 8px" }}>Failed to cancel the listing. Please try again.</p>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => setShowCancelModal(false)}
+                disabled={setListingStatus.isPending}
+                style={{
+                  padding: "9px 18px",
+                  background: "#fff",
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: R_MD,
+                  color: "#111",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Keep listing
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancel}
+                disabled={cancelConfirmText.trim().toUpperCase() !== "CANCEL" || setListingStatus.isPending}
+                style={{
+                  padding: "9px 18px",
+                  background: cancelConfirmText.trim().toUpperCase() === "CANCEL" && !setListingStatus.isPending ? "#dc2626" : "#fca5a5",
+                  border: "none",
+                  borderRadius: R_MD,
+                  color: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: cancelConfirmText.trim().toUpperCase() === "CANCEL" && !setListingStatus.isPending ? "pointer" : "not-allowed",
+                  fontFamily: "inherit",
+                }}
+              >
+                {setListingStatus.isPending ? "Cancelling…" : "Cancel listing"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phase === "details" && autofillRole.isSuccess && (
+        <div
+          style={{
+            marginBottom: "1.5rem",
+            padding: "10px 14px",
+            background: BL,
+            border: `1px solid ${BB}`,
+            borderRadius: R_MD,
+            fontSize: 13,
+            color: BT,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="6" stroke={B} strokeWidth="1.3" />
+            <polyline points="4,7 6.5,9.5 10.5,5" stroke={B} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Fields filled by AI — review and edit anything before posting.
+        </div>
+      )}
+
+      {!recordExists && (
+        <div style={{ marginBottom: "1.5rem", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+          <span style={{ fontSize: 12, color: MUTED }}>New to confidential matching?</span>
+          <MatchingInfoPopover />
+        </div>
+      )}
 
       {/* ── Phase stepper ── */}
       <div
@@ -1484,7 +1885,11 @@ export function PostRolePage() {
               >
                 {(createCase.isPending || updateCase.isPending)
                   ? "Saving…"
-                  : "Save & Continue to Benchmarking →"}
+                  : !recordExists
+                  ? "Save & Continue to Benchmarking →"
+                  : detailsDirty
+                  ? "Save Changes & Continue to Benchmarking →"
+                  : "Continue to Benchmarking →"}
               </button>
               <Link
                 to="/job-listings"
@@ -1731,8 +2136,91 @@ export function PostRolePage() {
                 </button>
               </form>
 
-              {/* Invitation list */}
-              {invitations.length === 0 ? (
+              {/* Already-invited candidates (source of truth = phase1 bids) */}
+              {existingBids.length > 0 && (
+                <div style={{ marginBottom: "1rem" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#111", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <circle cx="6.5" cy="6.5" r="5.5" stroke={B} strokeWidth="1.2" />
+                      <polyline points="4,6.5 5.8,8.3 9,5" stroke={B} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Invited candidates ({existingBids.length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {existingBids.map((bid, idx) => {
+                      const name = bid.candidate_name?.trim() || bid.candidate_email || "Invited candidate";
+                      const statusMeta =
+                        bid.submission_status === "applicant_bid_submitted"
+                          ? { label: "Submitted", bg: "#fef3c7", fg: "#92400e" }
+                          : bid.submission_status === "response_sent"
+                          ? { label: "Responded", bg: BL, fg: BT }
+                          : { label: "Invited", bg: "#eff6ff", fg: "#1d4ed8" };
+                      return (
+                        <div
+                          key={bid.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "10px 12px",
+                            background: idx % 2 === 0 ? SURFACE : "#fff",
+                            border: `0.5px solid ${BORDER}`,
+                            borderRadius: R_MD,
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: "50%",
+                              background: BL,
+                              border: `1px solid ${BB}`,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: BT,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {name
+                              .split(" ")
+                              .map((p) => p[0])
+                              .join("")
+                              .toUpperCase()
+                              .slice(0, 2)}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {name}
+                            </div>
+                            <div style={{ fontSize: 11, color: FAINT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {bid.candidate_email ?? "—"}
+                            </div>
+                          </div>
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "3px 9px",
+                              borderRadius: 99,
+                              background: statusMeta.bg,
+                              color: statusMeta.fg,
+                            }}
+                          >
+                            {statusMeta.label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Pending invitations (added locally, not yet sent) */}
+              {pendingInvitations.length === 0 ? (
                 <div
                   style={{
                     padding: "1.25rem",
@@ -1741,14 +2229,16 @@ export function PostRolePage() {
                     textAlign: "center",
                   }}
                 >
-                  <div style={{ fontSize: 13, color: FAINT }}>No invitations added yet.</div>
+                  <div style={{ fontSize: 13, color: FAINT }}>
+                    {existingBids.length > 0 ? "No new invitations to send." : "No invitations added yet."}
+                  </div>
                   <div style={{ fontSize: 11, color: FAINT, marginTop: 4, lineHeight: 1.5 }}>
                     You can also invite candidates after posting.
                   </div>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {invitations.map((inv, idx) => (
+                  {pendingInvitations.map((inv, idx) => (
                     <div
                       key={inv.id}
                       style={{
@@ -1836,7 +2326,7 @@ export function PostRolePage() {
                       <line x1="6" y1="5" x2="6" y2="8.5" stroke={B} strokeWidth="1.2" strokeLinecap="round" />
                       <circle cx="6" cy="3.5" r=".7" fill={B} />
                     </svg>
-                    {invitations.length} candidate{invitations.length === 1 ? "" : "s"} will receive a secure invitation link on submit.
+                    {pendingInvitations.length} candidate{pendingInvitations.length === 1 ? "" : "s"} will receive a secure invitation link on submit.
                   </div>
                 </div>
               )}
@@ -1869,7 +2359,7 @@ export function PostRolePage() {
               <button
                 type="button"
                 onClick={handleSendInvitations}
-                disabled={sendInvitations.isPending || invitations.length === 0}
+                disabled={sendInvitations.isPending || totalInviteCount === 0}
                 style={{
                   background: B,
                   color: "#fff",
@@ -1878,14 +2368,16 @@ export function PostRolePage() {
                   padding: "11px 24px",
                   fontSize: 14,
                   fontWeight: 600,
-                  cursor: (sendInvitations.isPending || invitations.length === 0) ? "not-allowed" : "pointer",
-                  opacity: (sendInvitations.isPending || invitations.length === 0) ? 0.6 : 1,
+                  cursor: (sendInvitations.isPending || totalInviteCount === 0) ? "not-allowed" : "pointer",
+                  opacity: (sendInvitations.isPending || totalInviteCount === 0) ? 0.6 : 1,
                   fontFamily: "inherit",
                 }}
               >
                 {sendInvitations.isPending
                   ? "Sending…"
-                  : `Save & send invitation${invitations.length === 1 ? "" : "s"}`}
+                  : pendingInvitations.length > 0
+                  ? `Save & send invitation${pendingInvitations.length === 1 ? "" : "s"}`
+                  : "Finish"}
               </button>
             </div>
       </div>
