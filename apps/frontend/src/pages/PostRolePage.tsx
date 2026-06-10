@@ -1,13 +1,15 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
+import { getTokenRole } from "../auth/token";
 import { useAutofillRole } from "../hooks/useCases";
-import { WorkdayBenchmarkPanel } from "../components/WorkdayBenchmarkPanel";
+import { GuidedBenchmark } from "../components/GuidedBenchmark";
+import { MatchingInfoPopover } from "../components/MatchingInfoPopover";
 import { copyToClipboard } from "../utils/clipboard";
 import { useCreateCase } from "../hooks/useCases";
 import { useParseInvitations } from "../hooks/useCases";
 import { useCaseDetail, useUpdateCase } from "../hooks/useCaseEditor";
-import { useSendPhase1BidInvitations } from "../hooks/usePhase1Bids";
+import { useGenerateRandomInvitation, useSendPhase1BidInvitations } from "../hooks/usePhase1Bids";
 
 // ─── Brand tokens (matching salarysafe.ai design language) ────────────────────
 const B = "#019529";
@@ -236,17 +238,6 @@ function CheckIcon() {
   );
 }
 
-function AlignmentStrengthBar({ pct, label }: { pct: number; label: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "#e0e0e0", overflow: "hidden" }}>
-        <div style={{ height: "100%", borderRadius: 3, background: B, width: `${pct}%` }} />
-      </div>
-      <span style={{ fontSize: 11, color: MUTED }}>{label}</span>
-    </div>
-  );
-}
-
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
 export function PostRolePage() {
@@ -255,11 +246,21 @@ export function PostRolePage() {
   const editCaseId = searchParams.get("edit") ?? "";
   const isEditMode = Boolean(editCaseId);
 
+  // Guided flow phases
+  const [phase, setPhase] = useState<"details" | "benchmark" | "invitations">("details");
+  // The saved listing id once the base record exists (new mode). In edit mode the
+  // record already exists, so the effective id is the edit target.
+  const [savedListingId, setSavedListingId] = useState<string | null>(null);
+  const effectiveListingId = isEditMode ? editCaseId : (savedListingId ?? "");
+
   const createCase = useCreateCase();
-  const updateCase = useUpdateCase(editCaseId);
+  const updateCase = useUpdateCase(effectiveListingId);
   const sendInvitations = useSendPhase1BidInvitations();
+  const randomInvite = useGenerateRandomInvitation();
   const { data: existingCase, isLoading: editLoading } = useCaseDetail(editCaseId);
   const autofillRole = useAutofillRole();
+
+  const isAdmin = getTokenRole() === "admin";
 
   // Role details
   const [jobTitle, setJobTitle] = useState("");
@@ -305,8 +306,11 @@ export function PostRolePage() {
 
   // Form
   const [formError, setFormError] = useState<string | null>(null);
-  const [createdCaseId, setCreatedCaseId] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [createdInviteTokens, setCreatedInviteTokens] = useState<Array<{ name: string; email: string; token: string }>>([]);
+  const [randomInviteStatus, setRandomInviteStatus] = useState<string | null>(null);
+
+  const recordExists = isEditMode || Boolean(savedListingId);
 
   // Bulk invite paste
   const parseInvitations = useParseInvitations();
@@ -475,117 +479,157 @@ export function PostRolePage() {
     }
   }
 
-  // ── Submit ───────────────────────────────────────────────────────────────────
+  // ── Save base record (Details phase) ─────────────────────────────────────────
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setFormError(null);
-
-    if (!jobTitle.trim()) {
-      setFormError("Job title is required.");
-      return;
-    }
-
+  function buildPayload() {
     const floor = Number(budgetFloorText.replace(/[$,\s]/g, ""));
     const ceiling = Number(budgetCeilingText.replace(/[$,\s]/g, ""));
-
-    if (!budgetFloorText || !Number.isFinite(floor) || floor <= 0) {
-      setFormError("A valid minimum salary is required.");
-      return;
-    }
-    if (!budgetCeilingText || !Number.isFinite(ceiling) || ceiling <= 0) {
-      setFormError("A valid maximum salary is required.");
-      return;
-    }
-    if (floor >= ceiling) {
-      setFormError("Maximum salary must be greater than the minimum salary.");
-      return;
-    }
-
     const ptoDays = ptoUnlimited ? "unlimited" : (Number(ptoDaysText) || 15);
     const wfhDaysNum = wfhSchedule === "full" ? 5 : wfhSchedule === "none" ? 0 : wfhSchedule === "flexible" ? null : (Number(wfhSchedule) || 0);
-
     const responsibilitiesList = responsibilities
       .split("\n")
       .map((r) => r.trim())
       .filter(Boolean);
 
-    try {
-      const payload = {
-        title: jobTitle.trim(),
-        description: jobDescription.trim() || null,
-        status: "active",
-        jurisdiction: "US",
-        currency,
-        company: {
-          public_payload: {
-            job_title: jobTitle.trim(),
-            category,
-            seniority_level: seniorityLevel,
-            employment_type: employmentType,
-            work_arrangement: workArrangement,
-            location: location.trim() || null,
-            job_description: jobDescription.trim() || null,
-            key_responsibilities: responsibilitiesList,
-            visa_sponsorship: visaSponsorship,
-            invitations: invitations.map((inv) => ({ name: inv.name, email: inv.email })),
-          },
-          confidential_payload: {
-            budget_floor: floor,
-            budget_ceiling: ceiling,
-            currency,
-            bonus_target_pct: bonusTargetPct ? (Number(bonusTargetPct) || null) : null,
-            benefits: {
-              health_insurance: hasHealthInsurance,
-              health_plan: hasHealthInsurance ? healthPlan : null,
-              retirement_401k: has401k,
-              retirement_match_pct: has401k ? (Number(retirementMatchPct) || 4) : null,
-              dental_vision: hasDentalVision,
-              stock_options: hasStockOptions,
-              equity_type: hasStockOptions ? equityType : null,
-              vesting_schedule: hasStockOptions ? vestingSchedule : null,
-              pto_days: ptoDays,
-              wfh_schedule: wfhSchedule,
-              wfh_days_per_week: wfhDaysNum,
-            },
+    return {
+      title: jobTitle.trim(),
+      description: jobDescription.trim() || null,
+      status: "active",
+      jurisdiction: "US",
+      currency,
+      company: {
+        public_payload: {
+          job_title: jobTitle.trim(),
+          category,
+          seniority_level: seniorityLevel,
+          employment_type: employmentType,
+          work_arrangement: workArrangement,
+          location: location.trim() || null,
+          job_description: jobDescription.trim() || null,
+          key_responsibilities: responsibilitiesList,
+          visa_sponsorship: visaSponsorship,
+          invitations: invitations.map((inv) => ({ name: inv.name, email: inv.email })),
+        },
+        confidential_payload: {
+          budget_floor: floor,
+          budget_ceiling: ceiling,
+          currency,
+          bonus_target_pct: bonusTargetPct ? (Number(bonusTargetPct) || null) : null,
+          benefits: {
+            health_insurance: hasHealthInsurance,
+            health_plan: hasHealthInsurance ? healthPlan : null,
+            retirement_401k: has401k,
+            retirement_match_pct: has401k ? (Number(retirementMatchPct) || 4) : null,
+            dental_vision: hasDentalVision,
+            stock_options: hasStockOptions,
+            equity_type: hasStockOptions ? equityType : null,
+            vesting_schedule: hasStockOptions ? vestingSchedule : null,
+            pto_days: ptoDays,
+            wfh_schedule: wfhSchedule,
+            wfh_days_per_week: wfhDaysNum,
           },
         },
-        candidate: {
-          public_payload: {},
-          confidential_payload: {},
-        },
-      };
+      },
+      candidate: {
+        public_payload: {},
+        confidential_payload: {},
+      },
+    };
+  }
 
-      if (isEditMode) {
+  function validateDetails(): boolean {
+    if (!jobTitle.trim()) {
+      setFormError("Job title is required.");
+      return false;
+    }
+    const floor = Number(budgetFloorText.replace(/[$,\s]/g, ""));
+    const ceiling = Number(budgetCeilingText.replace(/[$,\s]/g, ""));
+    if (!budgetFloorText || !Number.isFinite(floor) || floor <= 0) {
+      setFormError("A valid minimum salary is required.");
+      return false;
+    }
+    if (!budgetCeilingText || !Number.isFinite(ceiling) || ceiling <= 0) {
+      setFormError("A valid maximum salary is required.");
+      return false;
+    }
+    if (floor >= ceiling) {
+      setFormError("Maximum salary must be greater than the minimum salary.");
+      return false;
+    }
+    return true;
+  }
+
+  async function handleSaveDetails(e: FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    if (!validateDetails()) return;
+
+    const payload = buildPayload();
+    try {
+      if (recordExists) {
         await updateCase.mutateAsync(payload);
-        navigate("/corporate");
-        return;
+      } else {
+        const created = await createCase.mutateAsync(payload);
+        setSavedListingId(created.id);
       }
-      const created = await createCase.mutateAsync(payload);
-      // Fire invitation records for any entered invitees so they get a unique token URL
-      if (invitations.length > 0) {
-        try {
-          const createdBids = await sendInvitations.mutateAsync({
-            caseId: created.id,
-            invitations: invitations.map((inv) => ({
-              candidate_email: inv.email,
-              candidate_name: inv.name || null,
-            })),
-          });
-          setCreatedInviteTokens(
-            createdBids.map((bid, i) => ({
-              name: invitations[i]?.name ?? bid.candidate_name ?? "",
-              email: bid.candidate_email ?? invitations[i]?.email ?? "",
-              token: bid.token,
-            }))
-          );
-        } catch {
-          // Non-fatal: invitation records failed, but the case was created
-        }
-      }
-      setCreatedCaseId(created.id);
+      setPhase("benchmark");
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : isEditMode ? "Failed to save changes. Please try again." : "Failed to create job listing. Please try again.");
+      setFormError(
+        err instanceof Error
+          ? err.message
+          : recordExists
+          ? "Failed to save changes. Please try again."
+          : "Failed to create job listing. Please try again."
+      );
+    }
+  }
+
+  // ── Candidate invitations (Invitations phase) ────────────────────────────────
+
+  async function handleRandomInvite() {
+    if (!effectiveListingId) return;
+    setRandomInviteStatus(null);
+    try {
+      const created = await randomInvite.mutateAsync(effectiveListingId);
+      const url = `${window.location.origin}/apply/${created.token}`;
+      setCreatedInviteTokens((prev) => [
+        ...prev,
+        { name: created.candidate_name ?? "Random candidate", email: created.candidate_email ?? "—", token: created.token },
+      ]);
+      void copyToClipboard(url);
+      setRandomInviteStatus("Random invitation generated — link copied to clipboard.");
+    } catch (err) {
+      setRandomInviteStatus(err instanceof Error ? err.message : "Failed to generate a random invitation.");
+    }
+  }
+
+  async function handleSendInvitations() {
+    setFormError(null);
+    if (!effectiveListingId) {
+      setFormError("Save the listing before sending invitations.");
+      return;
+    }
+    try {
+      if (invitations.length > 0) {
+        const createdBids = await sendInvitations.mutateAsync({
+          caseId: effectiveListingId,
+          invitations: invitations.map((inv) => ({
+            candidate_email: inv.email,
+            candidate_name: inv.name || null,
+          })),
+        });
+        setCreatedInviteTokens((prev) => [
+          ...prev,
+          ...createdBids.map((bid, i) => ({
+            name: invitations[i]?.name ?? bid.candidate_name ?? "",
+            email: bid.candidate_email ?? invitations[i]?.email ?? "",
+            token: bid.token,
+          })),
+        ]);
+      }
+      setShowSuccess(true);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to send invitations. Please try again.");
     }
   }
 
@@ -596,7 +640,7 @@ export function PostRolePage() {
 
   // ── Success screen ───────────────────────────────────────────────────────────
 
-  if (createdCaseId) {
+  if (showSuccess) {
     return (
       <div style={{ maxWidth: 640, margin: "0 auto", padding: "3rem 0", fontFamily: "inherit" }}>
         <div
@@ -743,8 +787,11 @@ export function PostRolePage() {
             <button
               type="button"
               onClick={() => {
-                setCreatedCaseId(null);
+                setShowSuccess(false);
+                setSavedListingId(null);
+                setPhase("details");
                 setCreatedInviteTokens([]);
+                setRandomInviteStatus(null);
                 setJobTitle("");
                 setJobDescription("");
                 setLocation("");
@@ -836,52 +883,56 @@ export function PostRolePage() {
               </h1>
               <p style={{ fontSize: 14, color: MUTED, lineHeight: 1.7, maxWidth: 520 }}>
                 {isEditMode
-                  ? "Update the role details and salary range below. Changes are saved immediately."
-                  : "Enter job listing details and your confidential salary range. Candidates you invite will submit their expectations privately. SalarySafe checks alignment — no figures shared with either party."}
+                  ? "Work through each step below — update the role details, benchmark compensation, and manage candidate invitations."
+                  : "Follow the guided steps: enter the role details and confidential salary band, benchmark compensation, then invite candidates. Your figures stay confidential — only alignment is shared."}
               </p>
             </div>
-            {/* AI Autofill button */}
-            <button
-              type="button"
-              onClick={handleAutofill}
-              disabled={autofillRole.isPending}
-              style={{
-                flexShrink: 0,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "10px 18px",
-                background: autofillRole.isPending ? AI_ORANGE_LIGHT : AI_ORANGE,
-                color: autofillRole.isPending ? AI_ORANGE_DARK : "#fff",
-                border: `1px solid ${autofillRole.isPending ? "#fdba74" : AI_ORANGE_DARK}`,
-                borderRadius: R_LG,
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: autofillRole.isPending ? "not-allowed" : "pointer",
-                fontFamily: "inherit",
-                transition: "opacity .15s",
-              }}
-            >
-              {autofillRole.isPending ? (
-                <>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: "spin 1s linear infinite" }}>
-                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="22" strokeDashoffset="8" strokeLinecap="round" />
-                  </svg>
-                  Generating…
-                </>
-              ) : (
-                <>
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <rect x="1.25" y="1.25" width="11.5" height="11.5" rx="3" stroke="currentColor" strokeWidth="1.3" />
-                    <path d="M4 9.6V4.4h1.2l1.4 2.5 1.4-2.5h1.2v5.2H8v-3l-1.2 2.1H6.6L5.4 6.6v3H4z" fill="currentColor" />
-                    <path d="M10 9.6V4.4h2.8v1h-1.6v1.1h1.4v1h-1.4v2.1H10z" fill="currentColor" />
-                  </svg>
-                  AI Autofill
-                </>
+            {/* Header actions: matching-works popover + AI Autofill */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap" }}>
+              <MatchingInfoPopover />
+              {phase === "details" && (
+                <button
+                  type="button"
+                  onClick={handleAutofill}
+                  disabled={autofillRole.isPending}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 18px",
+                    background: autofillRole.isPending ? AI_ORANGE_LIGHT : AI_ORANGE,
+                    color: autofillRole.isPending ? AI_ORANGE_DARK : "#fff",
+                    border: `1px solid ${autofillRole.isPending ? "#fdba74" : AI_ORANGE_DARK}`,
+                    borderRadius: R_LG,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: autofillRole.isPending ? "not-allowed" : "pointer",
+                    fontFamily: "inherit",
+                    transition: "opacity .15s",
+                  }}
+                >
+                  {autofillRole.isPending ? (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ animation: "spin 1s linear infinite" }}>
+                        <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="22" strokeDashoffset="8" strokeLinecap="round" />
+                      </svg>
+                      Generating…
+                    </>
+                  ) : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <rect x="1.25" y="1.25" width="11.5" height="11.5" rx="3" stroke="currentColor" strokeWidth="1.3" />
+                        <path d="M4 9.6V4.4h1.2l1.4 2.5 1.4-2.5h1.2v5.2H8v-3l-1.2 2.1H6.6L5.4 6.6v3H4z" fill="currentColor" />
+                        <path d="M10 9.6V4.4h2.8v1h-1.6v1.1h1.4v1h-1.4v2.1H10z" fill="currentColor" />
+                      </svg>
+                      AI Autofill
+                    </>
+                  )}
+                </button>
               )}
-            </button>
+            </div>
           </div>
-          {autofillRole.isSuccess && (
+          {phase === "details" && autofillRole.isSuccess && (
             <div
               style={{
                 marginTop: "1rem",
@@ -903,33 +954,56 @@ export function PostRolePage() {
               Fields filled by AI — review and edit anything before posting.
             </div>
           )}
-          <div
-            style={{
-              marginTop: "1rem",
-              border: "1px solid rgba(100, 116, 139, 0.28)",
-              borderRadius: R_MD,
-              background: "rgba(241, 245, 249, 0.75)",
-              padding: "10px 12px",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              flexWrap: "wrap",
-            }}
-          >
-            <WorkdayBenchmarkPanel listingId={createdCaseId || (isEditMode ? editCaseId : undefined)} />
-          </div>
       </div>
 
-      <form onSubmit={handleSubmit}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.85fr) minmax(0, 1fr)",
-            gap: "2rem",
-            alignItems: "flex-start",
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {/* ── Phase stepper ── */}
+      <div
+        style={{
+          display: "flex",
+          background: "#fff",
+          border: `0.5px solid ${BORDER}`,
+          borderRadius: R_LG,
+          overflow: "hidden",
+          marginBottom: "1.75rem",
+        }}
+      >
+        {([
+          { key: "details", label: "1 · Role & Compensation" },
+          { key: "benchmark", label: "2 · Benchmarking" },
+          { key: "invitations", label: "3 · Candidate Invitations" },
+        ] as const).map((s, idx) => {
+          const isActive = phase === s.key;
+          const isLocked = s.key !== "details" && !recordExists;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => { if (!isLocked) setPhase(s.key); }}
+              disabled={isLocked}
+              style={{
+                flex: 1,
+                padding: "14px 18px",
+                background: isActive ? NAVY : "#fff",
+                color: isActive ? "#fff" : isLocked ? FAINT : "#111",
+                border: "none",
+                borderRight: idx < 2 ? `0.5px solid ${BORDER}` : "none",
+                cursor: isLocked ? "not-allowed" : "pointer",
+                fontSize: 13,
+                fontWeight: isActive ? 700 : 500,
+                fontFamily: "inherit",
+                opacity: isLocked ? 0.55 : 1,
+              }}
+              title={isLocked ? "Save the role details first to unlock this step" : undefined}
+            >
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {phase === "details" && (
+      <form onSubmit={handleSaveDetails}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
 
             {/* ── Role Details ── */}
             <div
@@ -1372,7 +1446,7 @@ export function PostRolePage() {
               </div>
             </div>
 
-            {/* ── Error + Submit ── */}
+            {/* ── Details footer ── */}
             {formError && (
               <div
                 style={{
@@ -1391,7 +1465,7 @@ export function PostRolePage() {
             <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: "2rem" }}>
               <button
                 type="submit"
-                disabled={isEditMode ? updateCase.isPending : createCase.isPending}
+                disabled={createCase.isPending || updateCase.isPending}
                 style={{
                   background: B,
                   color: "#fff",
@@ -1400,94 +1474,81 @@ export function PostRolePage() {
                   padding: "13px 28px",
                   fontSize: 15,
                   fontWeight: 500,
-                  cursor: (isEditMode ? updateCase.isPending : createCase.isPending) ? "not-allowed" : "pointer",
-                  opacity: (isEditMode ? updateCase.isPending : createCase.isPending) ? 0.7 : 1,
+                  cursor: (createCase.isPending || updateCase.isPending) ? "not-allowed" : "pointer",
+                  opacity: (createCase.isPending || updateCase.isPending) ? 0.7 : 1,
                   fontFamily: "inherit",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 8,
                 }}
               >
-                {isEditMode
-                  ? (updateCase.isPending ? "Saving…" : "Save changes")
-                  : (createCase.isPending ? "Posting…" : (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <circle cx="7" cy="7" r="6" stroke="white" strokeWidth="1.4" />
-                      <line x1="7" y1="4" x2="7" y2="10" stroke="white" strokeWidth="1.4" strokeLinecap="round" />
-                      <line x1="4" y1="7" x2="10" y2="7" stroke="white" strokeWidth="1.4" strokeLinecap="round" />
-                    </svg>
-                    Post role{invitations.length > 0 ? ` & send ${invitations.length} invitation${invitations.length === 1 ? "" : "s"}` : ""}
-                  </>
-                ))}
+                {(createCase.isPending || updateCase.isPending)
+                  ? "Saving…"
+                  : "Save & Continue to Benchmarking →"}
               </button>
               <Link
-                to="/corporate"
+                to="/job-listings"
                 style={{ fontSize: 14, color: MUTED, textDecoration: "none" }}
               >
                 Cancel
               </Link>
             </div>
-          </div>
+        </div>
+      </form>
+      )}
 
-          {/* ── RIGHT: Invitations panel ── */}
-          <div style={{ position: "sticky", top: 20 }}>
-            {/* How it works mini-summary */}
-            <div
-              style={{
-                background: NAVY,
-                borderRadius: R_LG,
-                padding: "1.5rem",
-                marginBottom: 14,
-              }}
-            >
-              <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: ".1em", color: "#5ab870", marginBottom: ".625rem" }}>
-                How matching works
-              </p>
-              <div style={{ display: "flex", flexDirection: "column" as const, gap: 16 }}>
-                {[
-                  { num: "1", label: "Post this listing", note: "Your salary range stays confidential" },
-                  { num: "2", label: "Invite candidates", note: "They receive a secure personalised link" },
-                  { num: "3", label: "They submit privately", note: "Salary expectations — never shown to you" },
-                  { num: "4", label: "SalarySafe matches", note: "You see only a directional label" },
-                ].map((step) => (
-                  <div key={step.num} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                    <div
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 6,
-                        background: step.num === "1" || step.num === "2" ? NAVY : step.num === "3" ? B : "#7F7589",
-                        border: "1px solid rgba(255,255,255,.15)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: "#fff",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {step.num}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "#fff", lineHeight: 1.3 }}>{step.label}</div>
-                      <div style={{ fontSize: 11, color: "rgba(255,255,255,.45)", marginTop: 2 }}>{step.note}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginTop: "1.25rem", borderTop: "0.5px solid rgba(255,255,255,.1)", paddingTop: "1rem" }}>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,.35)", marginBottom: 8 }}>Employer sees — salary alignment strength</div>
-                <AlignmentStrengthBar pct={92} label="Strong" />
-                <div style={{ marginTop: 8 }}>
-                  <AlignmentStrengthBar pct={55} label="Partial" />
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <AlignmentStrengthBar pct={20} label="No match" />
-                </div>
-              </div>
-            </div>
+      {/* ── Phase: Benchmark ── */}
+      {phase === "benchmark" && (
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        {effectiveListingId ? (
+          <GuidedBenchmark listingId={effectiveListingId} />
+        ) : (
+          <div style={{ padding: "2rem", textAlign: "center", color: MUTED, fontSize: 14, background: "#fff", border: `0.5px solid ${BORDER}`, borderRadius: R_LG }}>
+            Save the role details first to start benchmarking.
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingBottom: "2rem" }}>
+          <button
+            type="button"
+            onClick={() => setPhase("details")}
+            style={{
+              background: "#fff",
+              color: "#111",
+              border: `1px solid ${BORDER}`,
+              borderRadius: R_LG,
+              padding: "11px 22px",
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            ← Back to details
+          </button>
+          <button
+            type="button"
+            onClick={() => setPhase("invitations")}
+            style={{
+              background: B,
+              color: "#fff",
+              border: "none",
+              borderRadius: R_LG,
+              padding: "11px 24px",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Continue to Candidate Invitations →
+          </button>
+        </div>
+      </div>
+      )}
+
+      {/* ── Phase: Invitations ── */}
+      {phase === "invitations" && (
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
             {/* Invitations card */}
             <div
               style={{
@@ -1502,6 +1563,42 @@ export function PostRolePage() {
                 Add the candidates you want to invite. Each will receive a secure, tokenised link to
                 submit their salary expectations privately.
               </p>
+
+              {isAdmin && (
+                <div style={{ marginBottom: "1rem" }}>
+                  <button
+                    type="button"
+                    onClick={handleRandomInvite}
+                    disabled={randomInvite.isPending || !effectiveListingId}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "9px 16px",
+                      background: "#fff7ed",
+                      border: "1.5px solid #fb923c",
+                      borderRadius: R_MD,
+                      color: "#ea580c",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: (randomInvite.isPending || !effectiveListingId) ? "not-allowed" : "pointer",
+                      opacity: (randomInvite.isPending || !effectiveListingId) ? 0.6 : 1,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <circle cx="6.5" cy="6.5" r="5.5" stroke="#ea580c" strokeWidth="1.3" />
+                      <line x1="6.5" y1="3.5" x2="6.5" y2="9.5" stroke="#ea580c" strokeWidth="1.3" strokeLinecap="round" />
+                      <line x1="3.5" y1="6.5" x2="9.5" y2="6.5" stroke="#ea580c" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                    {randomInvite.isPending ? "Generating…" : "Add New Random Invitation"}
+                  </button>
+                  <span style={{ marginLeft: 10, fontSize: 11, color: FAINT }}>Admin only — generates a demo candidate invite link.</span>
+                  {randomInviteStatus && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: BT }}>{randomInviteStatus}</div>
+                  )}
+                </div>
+              )}
 
               {/* ── Bulk paste panel ── */}
               <div
@@ -1744,9 +1841,55 @@ export function PostRolePage() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      </form>
+
+            {sendInvitations.isError && (
+              <div style={{ padding: "12px 16px", background: "#fff5f5", border: "1px solid #fcc", borderRadius: R_MD, fontSize: 13, color: "#b00020" }}>
+                Could not send invitations. Please try again.
+              </div>
+            )}
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, paddingBottom: "2rem" }}>
+              <button
+                type="button"
+                onClick={() => setPhase("benchmark")}
+                style={{
+                  background: "#fff",
+                  color: "#111",
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: R_LG,
+                  padding: "11px 22px",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                ← Back to benchmarking
+              </button>
+              <button
+                type="button"
+                onClick={handleSendInvitations}
+                disabled={sendInvitations.isPending || invitations.length === 0}
+                style={{
+                  background: B,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: R_LG,
+                  padding: "11px 24px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: (sendInvitations.isPending || invitations.length === 0) ? "not-allowed" : "pointer",
+                  opacity: (sendInvitations.isPending || invitations.length === 0) ? 0.6 : 1,
+                  fontFamily: "inherit",
+                }}
+              >
+                {sendInvitations.isPending
+                  ? "Sending…"
+                  : `Save & send invitation${invitations.length === 1 ? "" : "s"}`}
+              </button>
+            </div>
+      </div>
+      )}
     </div>
   );
 }
