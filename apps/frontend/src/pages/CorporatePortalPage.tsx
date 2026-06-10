@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { getTokenRole } from "../auth/token";
-import { WorkdayBenchmarkPanel } from "../components/WorkdayBenchmarkPanel";
 
 import { useCases, useUpdateCaseGuidance, useUpdateCaseStatus } from "../hooks/useCases";
 import {
@@ -225,6 +224,13 @@ export function CandidateBidsPage() {
   const [closeBiddingResult, setCloseBiddingResult] = useState<{ sent: number; failed: number } | null>(null);
   const [isSendingAll, setIsSendingAll] = useState(false);
 
+  const [tableDensityCompact, setTableDensityCompact] = useState(false);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [page, setPage] = useState(1);
+  const [reviewBidId, setReviewBidId] = useState<string | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [actionMenuPos, setActionMenuPos] = useState<{ top: number; left: number } | null>(null);
+
   const isAdmin = getTokenRole() === "admin";
 
   const [reasonEdits, setReasonEdits] = useState<Record<string, string>>({});
@@ -368,6 +374,85 @@ export function CandidateBidsPage() {
     setFilterWfhRank("all");
   }
 
+  // ── Filter dropdown <-> boolean mapping ──────────────────────────────────────
+  const decisionFilterValue =
+    filterDecisionPending && filterDecisionAccepted && filterDecisionRejected ? "all"
+    : filterDecisionPending && !filterDecisionAccepted && !filterDecisionRejected ? "pending"
+    : !filterDecisionPending && filterDecisionAccepted && !filterDecisionRejected ? "accepted"
+    : !filterDecisionPending && !filterDecisionAccepted && filterDecisionRejected ? "rejected"
+    : "all";
+  function applyDecisionFilter(value: string) {
+    setFilterDecisionPending(value === "all" || value === "pending");
+    setFilterDecisionAccepted(value === "all" || value === "accepted");
+    setFilterDecisionRejected(value === "all" || value === "rejected");
+  }
+  const lifecycleFilterValue =
+    filterLifecycleAwaiting && filterLifecycleOpen && filterLifecycleClosed ? "all"
+    : filterLifecycleAwaiting && !filterLifecycleOpen && !filterLifecycleClosed ? "awaiting"
+    : !filterLifecycleAwaiting && filterLifecycleOpen && !filterLifecycleClosed ? "open"
+    : !filterLifecycleAwaiting && !filterLifecycleOpen && filterLifecycleClosed ? "closed"
+    : "all";
+  function applyLifecycleFilter(value: string) {
+    setFilterLifecycleAwaiting(value === "all" || value === "awaiting");
+    setFilterLifecycleOpen(value === "all" || value === "open");
+    setFilterLifecycleClosed(value === "all" || value === "closed");
+  }
+  const advancedFilterActive = filterInsuranceRank !== "all" || filterPtoRank !== "all" || filterWfhRank !== "all";
+
+  // ── Pagination ───────────────────────────────────────────────────────────────
+  const totalFiltered = filteredBids.length;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / rowsPerPage));
+  const currentPage = Math.min(page, totalPages);
+  const pageStartIndex = (currentPage - 1) * rowsPerPage;
+  const pagedBids = filteredBids.slice(pageStartIndex, pageStartIndex + rowsPerPage);
+  const showingStart = totalFiltered === 0 ? 0 : pageStartIndex + 1;
+  const showingEnd = Math.min(pageStartIndex + rowsPerPage, totalFiltered);
+
+  const reviewBid = (bids ?? []).find((bid) => bid.id === reviewBidId) ?? null;
+  const actionMenuBid = (bids ?? []).find((bid) => bid.id === openActionMenuId) ?? null;
+  const rowPad = tableDensityCompact ? "py-2" : "py-3";
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    filterApplicant,
+    filterDecisionPending,
+    filterDecisionAccepted,
+    filterDecisionRejected,
+    filterLifecycleAwaiting,
+    filterLifecycleOpen,
+    filterLifecycleClosed,
+    filterInsuranceRank,
+    filterPtoRank,
+    filterWfhRank,
+    rowsPerPage,
+    selectedCaseId,
+  ]);
+
+  useEffect(() => {
+    if (!openActionMenuId) return;
+    const onClick = () => setOpenActionMenuId(null);
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpenActionMenuId(null); };
+    const onScrollOrResize = () => setOpenActionMenuId(null);
+    window.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onScrollOrResize);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    return () => {
+      window.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onScrollOrResize);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+    };
+  }, [openActionMenuId]);
+
+  useEffect(() => {
+    if (!reviewBidId) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setReviewBidId(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reviewBidId]);
+
   useEffect(() => {
     const autoGuidance = buildDefaultGuidance(budgetRange.floor, budgetRange.ceiling, bidSalaryMin, bidSalaryMax);
 
@@ -481,148 +566,6 @@ export function CandidateBidsPage() {
         </div>
       </div>
 
-      <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-4">
-          <h3 className="font-display text-lg">Bid Statistics Summary</h3>
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${isFiltered ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-800"}`}>
-            {isFiltered ? "Table is currently filtered (stats below use full dataset)" : "Table unfiltered"}
-          </span>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Total Bids</p>
-            <p className="text-lg font-semibold">{totalBids}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Awaiting</p>
-            <p className="text-lg font-semibold text-amber-600">{invitationPendingCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Pending</p>
-            <p className="text-lg font-semibold">{decisionPendingCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Accepted</p>
-            <p className="text-lg font-semibold text-green-700">{decisionAcceptedCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Rejected</p>
-            <p className="text-lg font-semibold text-red-700">{decisionRejectedCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Open</p>
-            <p className="text-lg font-semibold">{openCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Closed</p>
-            <p className="text-lg font-semibold">{closedCount}</p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium">All Bids Midpoint Stats</p>
-            <p className="text-xs text-slate">Count: {allMidpointStats.count}</p>
-            <p className="text-xs text-slate">Min: {formatStatMoney(allMidpointStats.min)}</p>
-            <p className="text-xs text-slate">Max: {formatStatMoney(allMidpointStats.max)}</p>
-            <p className="text-xs text-slate">Avg: {formatStatMoney(allMidpointStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-green-700">Accepted Midpoint Stats</p>
-            <p className="text-xs text-slate">Count: {acceptedMidpointStats.count}</p>
-            <p className="text-xs text-slate">Min: {formatStatMoney(acceptedMidpointStats.min)}</p>
-            <p className="text-xs text-slate">Max: {formatStatMoney(acceptedMidpointStats.max)}</p>
-            <p className="text-xs text-slate">Avg: {formatStatMoney(acceptedMidpointStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-red-700">Rejected Midpoint Stats</p>
-            <p className="text-xs text-slate">Count: {rejectedMidpointStats.count}</p>
-            <p className="text-xs text-slate">Min: {formatStatMoney(rejectedMidpointStats.min)}</p>
-            <p className="text-xs text-slate">Max: {formatStatMoney(rejectedMidpointStats.max)}</p>
-            <p className="text-xs text-slate">Avg: {formatStatMoney(rejectedMidpointStats.avg)}</p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium">Overall Match Score</p>
-            <p className="text-xs text-slate">Scored bids: {overallMatchScoreStats.count}</p>
-            <p className="text-xs text-slate">Avg: {formatMatchScore(overallMatchScoreStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-green-700">Accepted Match Score</p>
-            <p className="text-xs text-slate">Scored bids: {acceptedMatchScoreStats.count}</p>
-            <p className="text-xs text-slate">Avg: {formatMatchScore(acceptedMatchScoreStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-red-700">Rejected Match Score</p>
-            <p className="text-xs text-slate">Scored bids: {rejectedMatchScoreStats.count}</p>
-            <p className="text-xs text-slate">Avg: {formatMatchScore(rejectedMatchScoreStats.avg)}</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm space-y-3">
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <div>
-            <p className="mb-0.5 text-xs font-medium text-slate">Match Criteria</p>
-            <p className="text-sm text-slate">Use the guidance below to shape batch matching decisions for the selected listing.</p>
-          </div>
-          <div className="self-end inline-flex items-center gap-2">
-            <button
-              className="rounded-full bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50 inline-flex items-center gap-2"
-              type="button"
-              onClick={handleBulkDecide}
-              disabled={!selectedCaseId || bulkDecide.isPending || unsentCount === 0 || !operatorGuidance.trim()}
-              title="Runs bulk LLM matching for currently unsent bids."
-            >
-              <span>✨</span>
-              {bulkDecide.isPending ? "Calculating..." : `AI Calculate Matches (batch: ${unsentCount} unsent)`}
-            </button>
-            <div className="group relative">
-              <button
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-ink/20 text-xs font-semibold text-slate"
-                type="button"
-                aria-label="View AI Calculate Matches system prompt"
-              >
-                i
-              </button>
-              <div className="pointer-events-none invisible absolute right-0 top-10 z-20 w-[34rem] rounded-xl border border-ink/10 bg-white p-3 text-xs text-ink shadow-lg group-hover:visible">
-                <p className="mb-2 font-medium">AI Calculate Matches System Prompt</p>
-                <p className="whitespace-pre-wrap text-slate">{BULK_DECISION_SYSTEM_PROMPT}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium">Match Decision guidance (required)</label>
-          <textarea
-            className="min-h-20 w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
-            value={operatorGuidance}
-            onChange={(event) => {
-              setOperatorGuidance(event.target.value);
-              if (bulkGuidanceError) setBulkGuidanceError(null);
-            }}
-            onBlur={() => {
-              if (selectedCaseId) {
-                updateCaseGuidance.mutate({ caseId: selectedCaseId, operatorGuidance });
-              }
-            }}
-            placeholder="Include salary range criteria, trade-off preferences, and acceptance thresholds."
-            required
-          />
-          {bulkGuidanceError ? <p className="mt-1 text-xs text-red-700">{bulkGuidanceError}</p> : null}
-        </div>
-
-        {bulkResultText ? <p className="rounded bg-green-50 px-3 py-2 text-sm text-green-700">{bulkResultText}</p> : null}
-
-        <div className="rounded-lg border border-slate-300/60 bg-slate-100/60 px-3 py-2">
-          <WorkdayBenchmarkPanel listingId={selectedCaseId ?? undefined} />
-        </div>
-      </section>
-
       {selectedCaseLlmPayload ? (
         <section className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
           <details className="px-4 py-3">
@@ -729,107 +672,267 @@ export function CandidateBidsPage() {
         </section>
       ) : null}
 
+      <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <h3 className="font-display text-lg">Bid Statistics Summary</h3>
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${isFiltered ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-800"}`}>
+            {isFiltered ? "Table is currently filtered (stats below use full dataset)" : "Table unfiltered"}
+          </span>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Total Bids</p>
+            <p className="text-lg font-semibold">{totalBids}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Awaiting</p>
+            <p className="text-lg font-semibold text-amber-600">{invitationPendingCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Pending</p>
+            <p className="text-lg font-semibold">{decisionPendingCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Accepted</p>
+            <p className="text-lg font-semibold text-green-700">{decisionAcceptedCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Rejected</p>
+            <p className="text-lg font-semibold text-red-700">{decisionRejectedCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Open</p>
+            <p className="text-lg font-semibold">{openCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Closed</p>
+            <p className="text-lg font-semibold">{closedCount}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium">All Bids Midpoint Stats</p>
+            <p className="text-xs text-slate">Count: {allMidpointStats.count}</p>
+            <p className="text-xs text-slate">Min: {formatStatMoney(allMidpointStats.min)}</p>
+            <p className="text-xs text-slate">Max: {formatStatMoney(allMidpointStats.max)}</p>
+            <p className="text-xs text-slate">Avg: {formatStatMoney(allMidpointStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-green-700">Accepted Midpoint Stats</p>
+            <p className="text-xs text-slate">Count: {acceptedMidpointStats.count}</p>
+            <p className="text-xs text-slate">Min: {formatStatMoney(acceptedMidpointStats.min)}</p>
+            <p className="text-xs text-slate">Max: {formatStatMoney(acceptedMidpointStats.max)}</p>
+            <p className="text-xs text-slate">Avg: {formatStatMoney(acceptedMidpointStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-red-700">Rejected Midpoint Stats</p>
+            <p className="text-xs text-slate">Count: {rejectedMidpointStats.count}</p>
+            <p className="text-xs text-slate">Min: {formatStatMoney(rejectedMidpointStats.min)}</p>
+            <p className="text-xs text-slate">Max: {formatStatMoney(rejectedMidpointStats.max)}</p>
+            <p className="text-xs text-slate">Avg: {formatStatMoney(rejectedMidpointStats.avg)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">%</span>
+              Overall Match Score
+            </p>
+            <p className="text-xs text-slate">Scored bids: {overallMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(overallMatchScoreStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 flex items-center gap-2 text-sm font-medium text-green-700">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 text-[11px] font-bold text-green-700">✓</span>
+              Accepted Match Score
+            </p>
+            <p className="text-xs text-slate">Scored bids: {acceptedMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(acceptedMatchScoreStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 flex items-center gap-2 text-sm font-medium text-red-700">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100 text-[11px] font-bold text-red-700">✕</span>
+              Rejected Match Score
+            </p>
+            <p className="text-xs text-slate">Scored bids: {rejectedMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(rejectedMatchScoreStats.avg)}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm space-y-3">
+        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <div>
+            <p className="mb-0.5 text-xs font-medium text-slate">Match Criteria</p>
+            <p className="text-sm text-slate">Use the guidance below to shape batch matching decisions for the selected listing.</p>
+          </div>
+          <div className="self-end inline-flex items-center gap-2">
+            <button
+              className="rounded-full bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50 inline-flex items-center gap-2"
+              type="button"
+              onClick={handleBulkDecide}
+              disabled={!selectedCaseId || bulkDecide.isPending || unsentCount === 0 || !operatorGuidance.trim()}
+              title="Runs bulk LLM matching for currently unsent bids."
+            >
+              <span>✨</span>
+              {bulkDecide.isPending ? "Calculating..." : `AI Calculate Matches (batch: ${unsentCount} unsent)`}
+            </button>
+            <div className="group relative">
+              <button
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-ink/20 text-xs font-semibold text-slate"
+                type="button"
+                aria-label="View AI Calculate Matches system prompt"
+              >
+                i
+              </button>
+              <div className="pointer-events-none invisible absolute right-0 top-10 z-20 w-[34rem] rounded-xl border border-ink/10 bg-white p-3 text-xs text-ink shadow-lg group-hover:visible">
+                <p className="mb-2 font-medium">AI Calculate Matches System Prompt</p>
+                <p className="whitespace-pre-wrap text-slate">{BULK_DECISION_SYSTEM_PROMPT}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium">Match Decision guidance (required)</label>
+          <textarea
+            className="min-h-20 w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
+            value={operatorGuidance}
+            onChange={(event) => {
+              setOperatorGuidance(event.target.value);
+              if (bulkGuidanceError) setBulkGuidanceError(null);
+            }}
+            onBlur={() => {
+              if (selectedCaseId) {
+                updateCaseGuidance.mutate({ caseId: selectedCaseId, operatorGuidance });
+              }
+            }}
+            placeholder="Include salary range criteria, trade-off preferences, and acceptance thresholds."
+            required
+          />
+          {bulkGuidanceError ? <p className="mt-1 text-xs text-red-700">{bulkGuidanceError}</p> : null}
+        </div>
+
+        {bulkResultText ? <p className="rounded bg-green-50 px-3 py-2 text-sm text-green-700">{bulkResultText}</p> : null}
+      </section>
+
       <section className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
         <div className="border-b border-ink/10 px-4 py-3">
           <h3 className="font-display text-lg">Candidate Bid and Invitations</h3>
           <p className="text-xs text-slate">Shows all bids: invited (awaiting), submitted (open/closed), and their decision status.</p>
         </div>
         <div className="border-b border-ink/10 bg-paper/60 px-4 py-3">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium">Applicant</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-52 flex-1">
+              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="9" cy="9" r="6" />
+                  <path d="m14 14 4 4" strokeLinecap="round" />
+                </svg>
+              </span>
               <input
-                className="w-full rounded border border-ink/20 px-2 py-1.5 text-xs"
-                placeholder="Search applicant"
+                className="w-full rounded-lg border border-ink/20 bg-white py-1.5 pl-8 pr-2 text-xs"
+                placeholder="Search candidates..."
                 value={filterApplicant}
                 onChange={(event) => setFilterApplicant(event.target.value)}
               />
             </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-medium">Decision Status</label>
-              <div className="flex flex-wrap items-center gap-3 rounded border border-ink/20 bg-white px-2 py-1.5 text-xs">
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={filterDecisionPending} onChange={(event) => setFilterDecisionPending(event.target.checked)} />
-                  Pending
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={filterDecisionAccepted} onChange={(event) => setFilterDecisionAccepted(event.target.checked)} />
-                  Accepted
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={filterDecisionRejected} onChange={(event) => setFilterDecisionRejected(event.target.checked)} />
-                  Rejected
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium">Lifecycle Status</label>
-              <div className="flex flex-wrap items-center gap-3 rounded border border-ink/20 bg-white px-2 py-1.5 text-xs">
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={filterLifecycleAwaiting} onChange={(event) => setFilterLifecycleAwaiting(event.target.checked)} />
-                  Awaiting
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={filterLifecycleOpen} onChange={(event) => setFilterLifecycleOpen(event.target.checked)} />
-                  Open
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <input type="checkbox" checked={filterLifecycleClosed} onChange={(event) => setFilterLifecycleClosed(event.target.checked)} />
-                  Closed
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              className="rounded-full border border-ink/20 px-3 py-1 text-xs"
-              type="button"
-              onClick={() => setShowAdvancedFilters((value) => !value)}
+            <select
+              className="rounded-lg border border-ink/20 bg-white px-2.5 py-1.5 text-xs"
+              value={decisionFilterValue}
+              onChange={(event) => applyDecisionFilter(event.target.value)}
+              aria-label="Decision status filter"
             >
-              {showAdvancedFilters ? "Hide Advanced Filters" : "Show Advanced Filters"}
-            </button>
-            <button className="rounded-full border border-ink/20 px-3 py-1 text-xs" type="button" onClick={clearFilters}>
-              Clear Filters
-            </button>
-            <span className="text-xs text-slate">
-              {isFiltered ? `Filtered view: showing ${filteredBids.length} of ${allBids.length} bids` : `Showing all ${allBids.length} bids`}
-            </span>
-          </div>
+              <option value="all">All Decision Status</option>
+              <option value="pending">Pending</option>
+              <option value="accepted">Accepted</option>
+              <option value="rejected">Rejected</option>
+            </select>
 
-          {showAdvancedFilters ? (
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium">Insurance Rank</label>
-                <select className="w-full rounded border border-ink/20 px-2 py-1.5 text-xs" value={filterInsuranceRank} onChange={(event) => setFilterInsuranceRank(event.target.value as "all" | "1" | "2" | "3")}>
-                  <option value="all">All</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium">PTO Rank</label>
-                <select className="w-full rounded border border-ink/20 px-2 py-1.5 text-xs" value={filterPtoRank} onChange={(event) => setFilterPtoRank(event.target.value as "all" | "1" | "2" | "3")}>
-                  <option value="all">All</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium">WFH Rank</label>
-                <select className="w-full rounded border border-ink/20 px-2 py-1.5 text-xs" value={filterWfhRank} onChange={(event) => setFilterWfhRank(event.target.value as "all" | "1" | "2" | "3")}>
-                  <option value="all">All</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                </select>
-              </div>
+            <select
+              className="rounded-lg border border-ink/20 bg-white px-2.5 py-1.5 text-xs"
+              value={lifecycleFilterValue}
+              onChange={(event) => applyLifecycleFilter(event.target.value)}
+              aria-label="Lifecycle status filter"
+            >
+              <option value="all">All Lifecycle Status</option>
+              <option value="awaiting">Awaiting</option>
+              <option value="open">Open</option>
+              <option value="closed">Closed</option>
+            </select>
+
+            <div className="relative" onClick={(event) => event.stopPropagation()}>
+              <button
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${advancedFilterActive ? "border-accent bg-accent/10 text-accent" : "border-ink/20 bg-white text-ink"}`}
+                type="button"
+                onClick={() => setShowAdvancedFilters((value) => !value)}
+              >
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M3 5h14M6 10h8M9 15h2" strokeLinecap="round" />
+                </svg>
+                Advanced Filters
+                {advancedFilterActive ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
+              </button>
+              {showAdvancedFilters ? (
+                <div className="absolute left-0 top-full z-30 mt-2 w-72 rounded-xl border border-ink/10 bg-white p-3 shadow-lg">
+                  <div className="grid gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium">Insurance Rank</label>
+                      <select className="w-full rounded border border-ink/20 px-2 py-1.5 text-xs" value={filterInsuranceRank} onChange={(event) => setFilterInsuranceRank(event.target.value as "all" | "1" | "2" | "3")}>
+                        <option value="all">All</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium">PTO Rank</label>
+                      <select className="w-full rounded border border-ink/20 px-2 py-1.5 text-xs" value={filterPtoRank} onChange={(event) => setFilterPtoRank(event.target.value as "all" | "1" | "2" | "3")}>
+                        <option value="all">All</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium">WFH Rank</label>
+                      <select className="w-full rounded border border-ink/20 px-2 py-1.5 text-xs" value={filterWfhRank} onChange={(event) => setFilterWfhRank(event.target.value as "all" | "1" | "2" | "3")}>
+                        <option value="all">All</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
-          ) : null}
+
+            <button className="rounded-lg border border-ink/20 bg-white px-2.5 py-1.5 text-xs" type="button" onClick={clearFilters}>
+              Clear
+            </button>
+
+            <span className="ml-auto text-xs text-slate">
+              Showing {showingStart}{showingEnd > showingStart ? `-${showingEnd}` : ""} of {totalFiltered}
+            </span>
+
+            <button
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border text-slate ${tableDensityCompact ? "border-accent bg-accent/10 text-accent" : "border-ink/20 bg-white"}`}
+              type="button"
+              title={tableDensityCompact ? "Switch to comfortable rows" : "Switch to compact rows"}
+              aria-label="Toggle row density"
+              onClick={() => setTableDensityCompact((value) => !value)}
+            >
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                <circle cx="10" cy="10" r="2.5" />
+                <path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="max-h-[560px] overflow-auto">
           <table className="w-full min-w-[1200px] text-left text-sm">
@@ -871,47 +974,37 @@ export function CandidateBidsPage() {
                 <td className="px-4 py-3 text-slate" colSpan={8}>No bids match the current filters.</td>
               </tr>
             ) : (
-              filteredBids.map((bid) => {
+              pagedBids.map((bid) => {
                 const isAwaiting = bid.submission_status === "invitation_pending";
                 const isSent = bid.submission_status === "response_sent";
                 const hasCandidateSubmission = hasCandidateBidSubmission(bid);
                 const responseDraft = responseEdits[bid.id] ?? "";
                 const responseSaved = bid.response_message ?? "";
                 const hasPendingResponseEdit = normalizeResponseMessage(responseDraft) !== normalizeResponseMessage(responseSaved);
-                const responseMessage = normalizeResponseMessage(responseDraft);
+                const reasonText = (reasonEdits[bid.id] ?? "").trim();
+                const responseText = normalizeResponseMessage(responseDraft);
+                const hasScore = typeof bid.match_score === "number" && Number.isFinite(bid.match_score);
                 const canDecide = hasCandidateSubmission && !isSent;
-                // UX rule: switching between accepted and rejected clears the draft response,
-                // unsaved draft changes are highlighted, and Send Response requires non-empty text.
-                const canSend = canDecide && bid.decision_status !== "pending" && responseMessage.length > 0;
                 const actionBlockedReason = !hasCandidateSubmission
                   ? "Waiting for candidate bid submission"
                   : isSent
                   ? "Response already sent"
                   : "";
-                const sendBlockedReason = !hasCandidateSubmission
-                  ? "Waiting for candidate bid submission"
-                  : isSent
-                  ? "Response already sent"
-                  : bid.decision_status === "pending"
-                  ? "Set decision before sending response"
-                  : responseMessage.length === 0
-                  ? "Write a response message before sending"
-                  : "";
                 return (
                   <tr key={bid.id} className={`border-t border-ink/10 align-top ${isAwaiting ? "opacity-60" : ""} ${isSent ? "bg-zinc-50" : ""}`}>
-                    <td className={`sticky left-0 z-10 px-4 py-3 ${isSent ? "bg-zinc-50" : isAwaiting ? "bg-amber-50/60" : "bg-white"}`}>
+                    <td className={`sticky left-0 z-10 px-4 ${rowPad} ${isSent ? "bg-zinc-50" : isAwaiting ? "bg-amber-50/60" : "bg-white"}`}>
                       <div className="flex flex-col gap-2">
-                        <span className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium ${statusPillClass(bid.decision_status)}`}>
+                        <span className={`inline-flex w-fit items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusPillClass(bid.decision_status)}`}>
                           <span className={`h-2 w-2 rounded-full ${bid.decision_status === "accepted" ? "bg-green-600" : bid.decision_status === "rejected" ? "bg-red-600" : "bg-amber-600"}`} />
                           {bid.decision_status}
                         </span>
-                        <span className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium ${responsePillClass(bid.submission_status)}`}>
+                        <span className={`inline-flex w-fit items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium ${responsePillClass(bid.submission_status)}`}>
                           <span className={`h-2 w-2 rounded-full ${bid.submission_status === "response_sent" ? "bg-zinc-300" : bid.submission_status === "invitation_pending" ? "bg-amber-500" : "bg-zinc-600"}`} />
                           {bid.submission_status === "response_sent" ? "Bid Closed" : bid.submission_status === "invitation_pending" ? "Bid Invitation Sent" : "Bid Open"}
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 min-w-44">
+                    <td className={`px-4 ${rowPad} min-w-44`}>
                       <div className="flex flex-col gap-0.5">
                         {bid.candidate_name ? (
                           <span className="font-medium text-sm">{bid.candidate_name}</span>
@@ -926,11 +1019,11 @@ export function CandidateBidsPage() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className={`px-4 ${rowPad}`}>
                       {isAwaiting ? (
                         <span className="text-sm text-slate">—</span>
                       ) : isAdmin ? (
-                        <span>${fmtMoney(bid.salary_min)} – ${fmtMoney(bid.salary_max)}</span>
+                        <span className="text-sm">${fmtMoney(bid.salary_min)} – ${fmtMoney(bid.salary_max)}</span>
                       ) : (
                         <span
                           className="select-none rounded bg-ink/10 px-2 py-0.5 text-xs text-transparent"
@@ -941,7 +1034,7 @@ export function CandidateBidsPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 min-w-36">
+                    <td className={`px-4 ${rowPad} min-w-36`}>
                       {isAwaiting ? (
                         <span className="text-sm text-slate">—</span>
                       ) : (
@@ -958,79 +1051,84 @@ export function CandidateBidsPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 min-w-24">
-                      {isAwaiting ? (
-                        <span className="text-sm text-slate">—</span>
+                    <td className={`px-4 ${rowPad} min-w-24`}>
+                      {isAwaiting || !hasScore ? (
+                        <span className="flex h-12 w-12 items-center justify-center rounded-full border border-dashed border-ink/20 text-xs text-slate">—</span>
                       ) : (
-                        <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-100">
                           {formatMatchScore(bid.match_score)}
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 min-w-64">
-                      <textarea
-                        className="min-h-16 w-full rounded border border-ink/20 px-2 py-1 text-xs"
-                        value={reasonEdits[bid.id] ?? ""}
-                        onChange={(event) => setReasonEdits((prev) => ({ ...prev, [bid.id]: event.target.value }))}
-                        disabled={isSent}
-                      />
+                    <td className={`px-4 ${rowPad} min-w-56 max-w-72`}>
+                      {isAwaiting ? (
+                        <span className="text-xs italic text-slate">Not yet available</span>
+                      ) : (
+                        <div className="space-y-1">
+                          {reasonText ? (
+                            <p className="text-xs leading-snug text-ink/80">{truncateText(reasonText, 130)}</p>
+                          ) : (
+                            <p className="text-xs italic text-slate">No reason recorded</p>
+                          )}
+                          {!isSent ? (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                              onClick={() => setReviewBidId(bid.id)}
+                            >
+                              Review <span aria-hidden="true">↗</span>
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
                     </td>
-                    <td className="px-4 py-3 min-w-80">
-                      <div className="space-y-2">
-                        <textarea
-                          className={`min-h-20 w-full rounded px-2 py-1 text-xs transition-colors ${hasPendingResponseEdit ? "border-amber-500 bg-amber-50 text-amber-950" : "border-ink/20 bg-white text-ink"}`}
-                          value={responseEdits[bid.id] ?? ""}
-                          onChange={(event) => setResponseEdits((prev) => ({ ...prev, [bid.id]: event.target.value }))}
-                          disabled={isSent}
-                        />
-                        <button
-                          className="rounded-full border border-ink/20 px-3 py-1 text-xs disabled:opacity-50"
-                          type="button"
-                          disabled={isSent || saveResponse.isPending}
-                          onClick={() => handleSaveResponseMessage(bid.id)}
-                        >
-                          Save Message
-                        </button>
-                      </div>
+                    <td className={`px-4 ${rowPad} min-w-72 max-w-80`}>
+                      {isAwaiting ? (
+                        <span className="text-xs italic text-slate">Invitation sent. Awaiting candidate response.</span>
+                      ) : (
+                        <div className="space-y-1">
+                          {responseText ? (
+                            <p className="text-xs leading-snug text-ink/80">{truncateText(responseText, 150)}</p>
+                          ) : (
+                            <p className="text-xs italic text-slate">No message drafted</p>
+                          )}
+                          <div className="flex items-center gap-2">
+                            {!isSent ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                                onClick={() => setReviewBidId(bid.id)}
+                              >
+                                Review <span aria-hidden="true">↗</span>
+                              </button>
+                            ) : null}
+                            {hasPendingResponseEdit ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">Unsaved</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      )}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-2">
-                        {isAdmin && isAwaiting ? (
-                          <button
-                            className="rounded-full bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                            type="button"
-                            disabled={aiAutoRespond.isPending}
-                            title="AI simulates candidate response and auto-matches (Admin only)"
-                            onClick={() => aiAutoRespond.mutate(bid.id)}
-                          >
-                            {aiAutoRespond.isPending ? "⏳ Working…" : "🤖 AI Auto-respond"}
-                          </button>
-                        ) : null}
-                        <Link
-                          className="rounded-full border border-ink/20 px-3 py-1 text-xs text-center hover:bg-ink hover:text-paper"
-                          to={`/invitations/${bid.id}`}
-                        >
-                          View
-                        </Link>
+                    <td className={`px-4 ${rowPad}`}>
+                      <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
                         <button
-                          className="rounded-full bg-green-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
                           type="button"
-                          disabled={!canDecide || updateDecision.isPending}
-                          title={actionBlockedReason}
-                          onClick={() => handleDecision(bid.id, "accepted", bid.decision_status)}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 text-ink hover:bg-ink/5"
+                          aria-label="Actions"
+                          title="Actions"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                            setActionMenuPos({ top: rect.bottom + 6, left: rect.right - 192 });
+                            setOpenActionMenuId((current) => (current === bid.id ? null : bid.id));
+                          }}
                         >
-                          Accept
+                          <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <circle cx="10" cy="4" r="1.6" />
+                            <circle cx="10" cy="10" r="1.6" />
+                            <circle cx="10" cy="16" r="1.6" />
+                          </svg>
                         </button>
-                        <button
-                          className="rounded-full bg-red-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-                          type="button"
-                          disabled={!canDecide || updateDecision.isPending}
-                          title={actionBlockedReason}
-                          onClick={() => handleDecision(bid.id, "rejected", bid.decision_status)}
-                        >
-                          Reject
-                        </button>
-
                       </div>
                     </td>
                   </tr>
@@ -1039,6 +1137,49 @@ export function CandidateBidsPage() {
             )}
           </tbody>
           </table>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 px-4 py-3 text-xs text-slate">
+          <div className="flex items-center gap-2">
+            <span>Rows per page</span>
+            <select
+              className="rounded border border-ink/20 bg-white px-2 py-1 text-xs"
+              value={rowsPerPage}
+              onChange={(event) => setRowsPerPage(Number(event.target.value))}
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-3">
+            <span>
+              {showingStart}{showingEnd > showingStart ? `-${showingEnd}` : ""} of {totalFiltered}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center rounded border border-ink/20 bg-white disabled:opacity-40"
+                aria-label="Previous page"
+                disabled={currentPage <= 1}
+                onClick={() => setPage((value) => Math.max(1, value - 1))}
+              >
+                ‹
+              </button>
+              <span className="inline-flex h-7 min-w-7 items-center justify-center rounded border border-ink/20 bg-white px-2 font-medium text-ink">
+                {currentPage}
+              </span>
+              <button
+                type="button"
+                className="inline-flex h-7 w-7 items-center justify-center rounded border border-ink/20 bg-white disabled:opacity-40"
+                aria-label="Next page"
+                disabled={currentPage >= totalPages}
+                onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              >
+                ›
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1067,6 +1208,154 @@ export function CandidateBidsPage() {
       </section>
 
     </section>
+
+    {actionMenuBid && actionMenuPos ? (() => {
+      const bid = actionMenuBid;
+      const isAwaiting = bid.submission_status === "invitation_pending";
+      const isSent = bid.submission_status === "response_sent";
+      const canDecide = hasCandidateBidSubmission(bid) && !isSent;
+      return (
+        <div
+          className="fixed z-[60] w-48 overflow-hidden rounded-xl border border-ink/10 bg-white py-1 shadow-xl"
+          style={{ top: actionMenuPos.top, left: Math.max(8, actionMenuPos.left) }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <p className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate">Actions</p>
+          <Link
+            to={`/invitations/${bid.id}`}
+            className="block px-3 py-2 text-sm hover:bg-ink/5"
+            onClick={() => setOpenActionMenuId(null)}
+          >
+            View
+          </Link>
+          {!isAwaiting && !isSent ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-2 text-left text-sm hover:bg-ink/5"
+              onClick={() => { setOpenActionMenuId(null); setReviewBidId(bid.id); }}
+            >
+              Review / Edit
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!canDecide || updateDecision.isPending}
+            title={canDecide ? "" : "Waiting for candidate bid submission"}
+            onClick={() => { setOpenActionMenuId(null); handleDecision(bid.id, "accepted", bid.decision_status); }}
+          >
+            Accept
+          </button>
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!canDecide || updateDecision.isPending}
+            title={canDecide ? "" : "Waiting for candidate bid submission"}
+            onClick={() => { setOpenActionMenuId(null); handleDecision(bid.id, "rejected", bid.decision_status); }}
+          >
+            Reject
+          </button>
+          {isAdmin && isAwaiting ? (
+            <button
+              type="button"
+              className="block w-full px-3 py-2 text-left text-sm text-orange-600 hover:bg-orange-50 disabled:opacity-40"
+              disabled={aiAutoRespond.isPending}
+              onClick={() => { setOpenActionMenuId(null); aiAutoRespond.mutate(bid.id); }}
+            >
+              {aiAutoRespond.isPending ? "Working…" : "🤖 AI Auto-respond"}
+            </button>
+          ) : null}
+        </div>
+      );
+    })() : null}
+
+    {reviewBid ? (() => {
+      const bid = reviewBid;
+      const isSent = bid.submission_status === "response_sent";
+      const canDecide = hasCandidateBidSubmission(bid) && !isSent;
+      const responseDraft = responseEdits[bid.id] ?? "";
+      const responseSaved = bid.response_message ?? "";
+      const hasPendingResponseEdit = normalizeResponseMessage(responseDraft) !== normalizeResponseMessage(responseSaved);
+      return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setReviewBidId(null)}>
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-display text-lg">Review Bid</h3>
+                <p className="text-sm text-slate">
+                  {bid.candidate_name ?? bid.applicant_identifier}{bid.candidate_email ? ` · ${bid.candidate_email}` : ""}
+                </p>
+              </div>
+              <button type="button" className="rounded-full border border-ink/20 px-3 py-1 text-xs hover:bg-ink hover:text-paper" onClick={() => setReviewBidId(null)}>
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusPillClass(bid.decision_status)}`}>
+                {bid.decision_status}
+              </span>
+              <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                Match {formatMatchScore(bid.match_score)}
+              </span>
+              <Link to={`/invitations/${bid.id}`} className="ml-auto text-xs font-medium text-accent hover:underline">
+                Open full detail ↗
+              </Link>
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1 block text-xs font-medium">Decision Reason</label>
+              <textarea
+                className="min-h-24 w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
+                value={reasonEdits[bid.id] ?? ""}
+                onChange={(event) => setReasonEdits((prev) => ({ ...prev, [bid.id]: event.target.value }))}
+                disabled={isSent}
+              />
+            </div>
+
+            <div className="mt-4">
+              <label className="mb-1 block text-xs font-medium">Response Message</label>
+              <textarea
+                className={`min-h-32 w-full rounded-lg px-3 py-2 text-sm transition-colors ${hasPendingResponseEdit ? "border border-amber-500 bg-amber-50 text-amber-950" : "border border-ink/20 bg-white text-ink"}`}
+                value={responseEdits[bid.id] ?? ""}
+                onChange={(event) => setResponseEdits((prev) => ({ ...prev, [bid.id]: event.target.value }))}
+                disabled={isSent}
+              />
+              {hasPendingResponseEdit ? <p className="mt-1 text-xs text-amber-700">Unsaved changes</p> : null}
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded-full bg-green-600 px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
+                  disabled={!canDecide || updateDecision.isPending}
+                  onClick={() => handleDecision(bid.id, "accepted", bid.decision_status)}
+                >
+                  Accept
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full bg-red-600 px-4 py-2 text-xs font-medium text-white disabled:opacity-50"
+                  disabled={!canDecide || updateDecision.isPending}
+                  onClick={() => handleDecision(bid.id, "rejected", bid.decision_status)}
+                >
+                  Reject
+                </button>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-ink/20 px-4 py-2 text-xs disabled:opacity-50"
+                disabled={isSent || saveResponse.isPending}
+                onClick={() => handleSaveResponseMessage(bid.id)}
+              >
+                {saveResponse.isPending ? "Saving…" : "Save Message"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    })() : null}
 
     {showCloseBiddingConfirm && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

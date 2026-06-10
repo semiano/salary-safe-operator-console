@@ -5,6 +5,7 @@ import { clearAccessToken, getTokenRole, isAuthenticated } from "./auth/token";
 import { AccountMenu } from "./components/AccountMenu";
 import { ActionQueueBell } from "./components/ActionQueueBell";
 import { DebugLogDock } from "./components/DebugLogDock";
+import { TutorialOverlay } from "./components/TutorialOverlay";
 import { useTheme } from "./hooks/useTheme";
 import { CandidateApplyPage } from "./pages/CandidateApplyPage";
 import { CandidateBidPage } from "./pages/CandidateBidPage";
@@ -69,13 +70,31 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
+const TUTORIAL_DISMISSED_KEY = "salarysafe_tutorial_dismissed";
+
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const [underConOpen, setUnderConOpen] = useState(false);
   const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [tutorialDismissed, setTutorialDismissed] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+    return sessionStorage.getItem(TUTORIAL_DISMISSED_KEY) === "1";
+  });
   const { style, setStyle } = useTheme();
   const showAdminDebugDock = isAuthenticated() && getTokenRole() === "admin";
+  const shouldShowTutorial = isAuthenticated() && !location.pathname.startsWith("/login");
+
+  useEffect(() => {
+    if (!shouldShowTutorial || tutorialDismissed) {
+      return;
+    }
+
+    setTutorialOpen(true);
+  }, [shouldShowTutorial, tutorialDismissed]);
 
   // Public candidate-facing pages render without the corporate shell
   if (location.pathname.startsWith("/apply/") || location.pathname.startsWith("/bid/")) {
@@ -241,6 +260,35 @@ export function App() {
 
           {/* ── Zone 3: Utilities ─────────────────────────────────────────── */}
           <div className="flex items-center justify-end gap-2">
+            {/* Help button */}
+            <button
+              type="button"
+              aria-label="Open tutorial"
+              title="Help"
+              onClick={() => setTutorialOpen(true)}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                background: "transparent",
+                border: "1px solid rgba(0,0,0,0.13)",
+                color: "rgba(0,0,0,0.44)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "background 0.15s, border-color 0.15s",
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.05)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            >
+              <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                <path d="M9 13.25v.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M7.2 6.7a2.1 2.1 0 1 1 3.7 1.35c-.7.82-1.7 1.07-1.7 2.45" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.4" />
+              </svg>
+            </button>
             {/* Under Construction icon button */}
             <div style={{ position: "relative" }}>
               <button
@@ -481,6 +529,15 @@ export function App() {
           <Route path="/corporate/bids/:bidId/edit" element={<BidIdEditRedirect />} />
         </Routes>
       </main>
+
+      <TutorialOverlay
+        open={tutorialOpen}
+        onClose={() => {
+          sessionStorage.setItem(TUTORIAL_DISMISSED_KEY, "1");
+          setTutorialDismissed(true);
+          setTutorialOpen(false);
+        }}
+      />
 
       {showAdminDebugDock ? <DebugLogDock /> : null}
     </div>
