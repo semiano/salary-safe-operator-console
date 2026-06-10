@@ -47,9 +47,10 @@ export function WorkdayBenchmarkPanel({ className, listingId }: WorkdayBenchmark
     };
   }, [menuOpen, compareOpen]);
 
-  const basePath = listingId ? `/job-listings/${listingId}` : "/compensation-benchmarking";
-  const externalPath = `${basePath}/comp-external`;
-  const internalPath = `${basePath}/comp-internal`;
+  const listingQuery = listingId ? `?listing=${encodeURIComponent(listingId)}` : "";
+  const workspaceStep1Path = `/compensation-benchmarking/workspace${listingQuery ? `${listingQuery}&step=1` : "?step=1"}`;
+  const workspaceStep2Path = `/compensation-benchmarking/workspace${listingQuery ? `${listingQuery}&step=2` : "?step=2"}`;
+  const workspaceStep3Path = `/compensation-benchmarking/workspace${listingQuery ? `${listingQuery}&step=3` : "?step=3"}`;
 
   return (
     <>
@@ -96,13 +97,13 @@ export function WorkdayBenchmarkPanel({ className, listingId }: WorkdayBenchmark
                 Compensation Benchmarking
               </div>
               <div style={{ marginTop: 4, fontSize: 13, lineHeight: 1.5, color: "#cbd5e1" }}>
-                Open the dedicated benchmark pages or use the bridge compare helper.
+                Open the unified benchmark workspace flow or use the bridge compare helper.
               </div>
             </div>
 
             <div style={{ display: "grid", gap: 8 }}>
               <Link
-                to={externalPath}
+                to={workspaceStep1Path}
                 onClick={() => setMenuOpen(false)}
                 style={{
                   display: "flex",
@@ -117,13 +118,13 @@ export function WorkdayBenchmarkPanel({ className, listingId }: WorkdayBenchmark
                 }}
               >
                 <span>
-                  <strong style={{ display: "block", fontSize: 13 }}>External page</strong>
-                  <span style={{ fontSize: 12, color: "#94a3b8" }}>Provider cards, percentiles, and market warnings</span>
+                  <strong style={{ display: "block", fontSize: 13 }}>Start benchmark workflow (Step 1)</strong>
+                  <span style={{ fontSize: 12, color: "#94a3b8" }}>Internal dataset setup, mapping, and AI similarity run</span>
                 </span>
                 <span aria-hidden="true">↗</span>
               </Link>
               <Link
-                to={internalPath}
+                to={workspaceStep2Path}
                 onClick={() => setMenuOpen(false)}
                 style={{
                   display: "flex",
@@ -138,8 +139,30 @@ export function WorkdayBenchmarkPanel({ className, listingId }: WorkdayBenchmark
                 }}
               >
                 <span>
-                  <strong style={{ display: "block", fontSize: 13 }}>Internal page</strong>
-                  <span style={{ fontSize: 12, color: "#94a3b8" }}>Aggregates, suppression, and internal pay bands</span>
+                  <strong style={{ display: "block", fontSize: 13 }}>Open external evidence (Step 2)</strong>
+                  <span style={{ fontSize: 12, color: "#94a3b8" }}>Provider cards, uploads, and market signal validation</span>
+                </span>
+                <span aria-hidden="true">↗</span>
+              </Link>
+              <Link
+                to={workspaceStep3Path}
+                onClick={() => setMenuOpen(false)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background: "rgba(2, 6, 23, 0.72)",
+                  color: "inherit",
+                  textDecoration: "none",
+                  border: "1px solid rgba(148, 163, 184, 0.28)",
+                }}
+              >
+                <span>
+                  <strong style={{ display: "block", fontSize: 13 }}>Open recommendation review (Step 3)</strong>
+                  <span style={{ fontSize: 12, color: "#94a3b8" }}>Synthesis, confidence, and apply-to-listing decision</span>
                 </span>
                 <span aria-hidden="true">↗</span>
               </Link>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { getTokenRole } from "../auth/token";
 import { useAiAutoRespond, useAllApplications } from "../hooks/useApplications";
@@ -131,7 +131,9 @@ type SortKey = "newest" | "oldest" | "submitted" | "name_az" | "name_za" | "job_
 export function AllApplicationsPage() {
   const { data: applications, isLoading } = useAllApplications();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = getTokenRole() === "admin";
+  const listingIdFilter = searchParams.get("listingId")?.trim() || null;
 
   // Filter / sort state
   const [searchQuery, setSearchQuery] = useState("");
@@ -169,6 +171,7 @@ export function AllApplicationsPage() {
 
   const visibleBids = bids
     .filter((b) => {
+      if (listingIdFilter && b.case_id !== listingIdFilter) return false;
       if (activeStatFilter === "submitted" && b.submission_status !== "applicant_bid_submitted") return false;
       if (activeStatFilter === "awaiting"  && b.submission_status !== "invitation_pending")       return false;
       if (activeStatFilter === "accepted"  && b.decision_status !== "accepted")                  return false;
@@ -207,7 +210,7 @@ export function AllApplicationsPage() {
       return 0;
     });
 
-  const hasFilter = searchQuery.trim() !== "" || decisionFilter !== "all" || stageFilter !== "all" || jobFilter !== "all" || activeStatFilter !== "all";
+  const hasFilter = listingIdFilter !== null || searchQuery.trim() !== "" || decisionFilter !== "all" || stageFilter !== "all" || jobFilter !== "all" || activeStatFilter !== "all";
 
   function clearFilters() {
     setSearchQuery("");
@@ -215,6 +218,13 @@ export function AllApplicationsPage() {
     setStageFilter("all");
     setJobFilter("all");
     setActiveStatFilter("all");
+    if (listingIdFilter) {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("listingId");
+        return next;
+      });
+    }
   }
 
   return (

@@ -26,7 +26,7 @@ function dataToText(data: unknown): string {
 
 export function DebugLogDock() {
   const [logs, setLogs] = useState<DebugLogEntry[]>([]);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     return subscribeDebugLogs((items) => setLogs(items));

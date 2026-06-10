@@ -9,6 +9,7 @@ from app.api.routes_admin import router as admin_router
 from app.api.routes_apply import router as apply_router
 from app.api.routes_applications import router as applications_router
 from app.api.routes_auth import router as auth_router
+from app.api.routes_benchmark import router as benchmark_router
 from app.api.routes_cases import router as cases_router
 from app.api.routes_tenants import router as tenants_router
 from app.api.routes_configs import router as configs_router
@@ -79,3 +80,4 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(ws_router)
 app.include_router(public_bid_router, prefix="/api")
 app.include_router(apply_router, prefix="/api")
+app.include_router(benchmark_router, prefix="/api")

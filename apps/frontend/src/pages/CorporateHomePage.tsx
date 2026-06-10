@@ -734,7 +734,7 @@ function RowWithStats({
       style={{ borderBottom: `1px solid ${BORDER}`, background: hovered ? "#fafaf9" : "#fff", cursor: "pointer", transition: "background .12s" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={() => navigate(`/job-listings/${cs.id}/view-bids`)}
+      onClick={() => navigate(`/job-listings/new?edit=${cs.id}`)}
     >
       {/* Role */}
       <td style={{ padding: "0.9rem 1.25rem", maxWidth: 0 }}>
@@ -832,6 +832,36 @@ function RowWithStats({
             style={{ background: "#fff", color: "#374151", border: `1px solid ${BORDER}`, borderRadius: R_MD, padding: "6px 13px", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
           >
             Edit
+          </button>
+
+          {/* All invitations (filtered to this listing) */}
+          <button
+            type="button"
+            onClick={() => navigate(`/invitations?listingId=${encodeURIComponent(cs.id)}`)}
+            style={{
+              background: "#fff",
+              color: "#111",
+              border: `1px solid #d1d5db`,
+              borderRadius: R_MD,
+              padding: "6px 13px",
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => {
+              const btn = e.currentTarget as HTMLButtonElement;
+              btn.style.background = "#f9fafb";
+              btn.style.borderColor = "#9ca3af";
+            }}
+            onMouseLeave={(e) => {
+              const btn = e.currentTarget as HTMLButtonElement;
+              btn.style.background = "#fff";
+              btn.style.borderColor = "#d1d5db";
+            }}
+          >
+            Invitations
           </button>
 
           {/* View Bids — neutral secondary style */}

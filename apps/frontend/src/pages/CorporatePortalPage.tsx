@@ -148,6 +148,12 @@ function formatListingValue(value: unknown): string {
   return String(value);
 }
 
+function truncateText(value: string, maxLength: number): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 type BidLike = {
   salary_min: number;
   salary_max: number;
@@ -191,7 +197,7 @@ function hasCandidateBidSubmission(bid: {
 }
 
 export function CandidateBidsPage() {
-  const { data: cases, isLoading: casesLoading } = useCases();
+  const { data: cases } = useCases();
   const [searchParams] = useSearchParams();
   const { listingId } = useParams<{ listingId?: string }>();
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(
@@ -473,16 +479,93 @@ export function CandidateBidsPage() {
         </div>
       </div>
 
+      <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-4">
+          <h3 className="font-display text-lg">Bid Statistics Summary</h3>
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${isFiltered ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-800"}`}>
+            {isFiltered ? "Table is currently filtered (stats below use full dataset)" : "Table unfiltered"}
+          </span>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Total Bids</p>
+            <p className="text-lg font-semibold">{totalBids}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Awaiting</p>
+            <p className="text-lg font-semibold text-amber-600">{invitationPendingCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Pending</p>
+            <p className="text-lg font-semibold">{decisionPendingCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Accepted</p>
+            <p className="text-lg font-semibold text-green-700">{decisionAcceptedCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Rejected</p>
+            <p className="text-lg font-semibold text-red-700">{decisionRejectedCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Open</p>
+            <p className="text-lg font-semibold">{openCount}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="text-xs text-slate">Closed</p>
+            <p className="text-lg font-semibold">{closedCount}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium">All Bids Midpoint Stats</p>
+            <p className="text-xs text-slate">Count: {allMidpointStats.count}</p>
+            <p className="text-xs text-slate">Min: {formatStatMoney(allMidpointStats.min)}</p>
+            <p className="text-xs text-slate">Max: {formatStatMoney(allMidpointStats.max)}</p>
+            <p className="text-xs text-slate">Avg: {formatStatMoney(allMidpointStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-green-700">Accepted Midpoint Stats</p>
+            <p className="text-xs text-slate">Count: {acceptedMidpointStats.count}</p>
+            <p className="text-xs text-slate">Min: {formatStatMoney(acceptedMidpointStats.min)}</p>
+            <p className="text-xs text-slate">Max: {formatStatMoney(acceptedMidpointStats.max)}</p>
+            <p className="text-xs text-slate">Avg: {formatStatMoney(acceptedMidpointStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-red-700">Rejected Midpoint Stats</p>
+            <p className="text-xs text-slate">Count: {rejectedMidpointStats.count}</p>
+            <p className="text-xs text-slate">Min: {formatStatMoney(rejectedMidpointStats.min)}</p>
+            <p className="text-xs text-slate">Max: {formatStatMoney(rejectedMidpointStats.max)}</p>
+            <p className="text-xs text-slate">Avg: {formatStatMoney(rejectedMidpointStats.avg)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium">Overall Match Score</p>
+            <p className="text-xs text-slate">Scored bids: {overallMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(overallMatchScoreStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-green-700">Accepted Match Score</p>
+            <p className="text-xs text-slate">Scored bids: {acceptedMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(acceptedMatchScoreStats.avg)}</p>
+          </div>
+          <div className="rounded-lg border border-ink/10 p-3 text-sm">
+            <p className="mb-2 text-sm font-medium text-red-700">Rejected Match Score</p>
+            <p className="text-xs text-slate">Scored bids: {rejectedMatchScoreStats.count}</p>
+            <p className="text-xs text-slate">Avg: {formatMatchScore(rejectedMatchScoreStats.avg)}</p>
+          </div>
+        </div>
+      </section>
+
       <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm space-y-3">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <div>
-            <p className="mb-0.5 text-xs font-medium text-slate">Job</p>
-            <p className="text-base font-semibold">
-              {casesLoading ? "Loading..." : (selectedCase?.title ?? "—")}
-            </p>
-            {selectedCaseMeta?.jobTitle && selectedCaseMeta.jobTitle !== selectedCase?.title ? (
-              <p className="text-xs text-slate">{selectedCaseMeta.jobTitle}</p>
-            ) : null}
+            <p className="mb-0.5 text-xs font-medium text-slate">Match Criteria</p>
+            <p className="text-sm text-slate">Use the guidance below to shape batch matching decisions for the selected listing.</p>
           </div>
           <div className="self-end inline-flex items-center gap-2">
             <button
@@ -533,102 +616,122 @@ export function CandidateBidsPage() {
 
         {bulkResultText ? <p className="rounded bg-green-50 px-3 py-2 text-sm text-green-700">{bulkResultText}</p> : null}
 
-        {selectedCaseLlmPayload ? (
-          <div className="rounded-xl border border-ink/10 bg-paper p-4 text-sm">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold">Job Listing Context</p>
-              <div className="flex items-center gap-2">
-                {copyStatusText ? <span className="text-xs text-slate">{copyStatusText}</span> : null}
-                <button
-                  className="rounded-full border border-ink/20 bg-white px-3 py-1 text-xs hover:bg-ink hover:text-paper"
-                  type="button"
-                  onClick={handleCopyLlmContextJson}
-                >
-                  Copy LLM Context JSON
-                </button>
-                <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[11px] text-ink/80">Sent with each AI Calculate Matches run</span>
-              </div>
-            </div>
-
-            <div className="mb-4 rounded-lg border border-slate-300/60 bg-slate-100/60 px-3 py-2">
-              <WorkdayBenchmarkPanel listingId={selectedCaseId ?? undefined} />
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Job Title</p>
-                <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.job_title)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Listing Status</p>
-                <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.status)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Jurisdiction</p>
-                <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.jurisdiction)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Currency</p>
-                <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.currency)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Category</p>
-                <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.category)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Work Arrangement</p>
-                <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.work_arrangement)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 md:col-span-2 xl:col-span-1">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Location</p>
-                <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.location)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Budget Floor</p>
-                <p className="mt-0.5">{formatStatMoney(selectedCaseLlmPayload.budget_floor)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Budget Target</p>
-                <p className="mt-0.5">{formatStatMoney(selectedCaseLlmPayload.budget_target)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Budget Ceiling</p>
-                <p className="mt-0.5">{formatStatMoney(selectedCaseLlmPayload.budget_ceiling)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 md:col-span-2 xl:col-span-3">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Job Description</p>
-                <p className="mt-0.5 whitespace-pre-wrap">{formatListingValue(selectedCaseLlmPayload.job_description)}</p>
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 md:col-span-2 xl:col-span-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Responsibilities</p>
-                {selectedCaseLlmPayload.responsibilities.length > 0 ? (
-                  <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
-                    {selectedCaseLlmPayload.responsibilities.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-0.5">Not provided</p>
-                )}
-              </div>
-              <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 xl:col-span-1">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Benefits (Raw)</p>
-                {Object.keys(selectedCaseLlmPayload.benefits).length > 0 ? (
-                  <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-ink/5 p-2 text-[11px]">
-                    {JSON.stringify(selectedCaseLlmPayload.benefits, null, 2)}
-                  </pre>
-                ) : (
-                  <p className="mt-0.5">Not provided</p>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : null}
+        <div className="rounded-lg border border-slate-300/60 bg-slate-100/60 px-3 py-2">
+          <WorkdayBenchmarkPanel listingId={selectedCaseId ?? undefined} />
+        </div>
       </section>
+
+      {selectedCaseLlmPayload ? (
+        <section className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
+          <details className="border-b border-ink/10 bg-paper/60 px-4 py-3">
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-lg">Job Details</h3>
+                  <p className="text-xs text-slate">
+                    {formatListingValue(selectedCaseLlmPayload.job_title)} · {selectedCase?.created_at ? new Date(selectedCase.created_at).toLocaleString() : "Unknown date"}
+                  </p>
+                  <p className="mt-2 max-w-4xl text-sm text-ink/80">
+                    {truncateText(formatListingValue(selectedCaseLlmPayload.job_description), 220)}
+                  </p>
+                </div>
+                <div className="rounded-full border border-ink/20 bg-white px-3 py-1 text-xs text-slate">
+                  Expand for full details
+                </div>
+              </div>
+            </summary>
+
+            <div className="mt-4 rounded-xl border border-ink/10 bg-white p-4 text-sm">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  {copyStatusText ? <span className="text-xs text-slate">{copyStatusText}</span> : null}
+                  <button
+                    className="rounded-full border border-ink/20 bg-white px-3 py-1 text-xs hover:bg-ink hover:text-paper"
+                    type="button"
+                    onClick={handleCopyLlmContextJson}
+                  >
+                    Copy LLM Context JSON
+                  </button>
+                  <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[11px] text-ink/80">Sent with each AI Calculate Matches run</span>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Job Title</p>
+                  <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.job_title)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Listing Status</p>
+                  <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.status)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Jurisdiction</p>
+                  <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.jurisdiction)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Currency</p>
+                  <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.currency)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Category</p>
+                  <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.category)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Work Arrangement</p>
+                  <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.work_arrangement)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 md:col-span-2 xl:col-span-1">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Location</p>
+                  <p className="mt-0.5">{formatListingValue(selectedCaseLlmPayload.location)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Budget Floor</p>
+                  <p className="mt-0.5">{formatStatMoney(selectedCaseLlmPayload.budget_floor)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Budget Target</p>
+                  <p className="mt-0.5">{formatStatMoney(selectedCaseLlmPayload.budget_target)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Budget Ceiling</p>
+                  <p className="mt-0.5">{formatStatMoney(selectedCaseLlmPayload.budget_ceiling)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 md:col-span-2 xl:col-span-3">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Job Description</p>
+                  <p className="mt-0.5 whitespace-pre-wrap">{formatListingValue(selectedCaseLlmPayload.job_description)}</p>
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 md:col-span-2 xl:col-span-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Responsibilities</p>
+                  {selectedCaseLlmPayload.responsibilities.length > 0 ? (
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm">
+                      {selectedCaseLlmPayload.responsibilities.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-0.5">Not provided</p>
+                  )}
+                </div>
+                <div className="rounded-lg border border-ink/10 bg-white px-3 py-2 xl:col-span-1">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-slate">Benefits (Raw)</p>
+                  {Object.keys(selectedCaseLlmPayload.benefits).length > 0 ? (
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-ink/5 p-2 text-[11px]">
+                      {JSON.stringify(selectedCaseLlmPayload.benefits, null, 2)}
+                    </pre>
+                  ) : (
+                    <p className="mt-0.5">Not provided</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </details>
+        </section>
+      ) : null}
 
       <section className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
         <div className="border-b border-ink/10 px-4 py-3">
-          <h3 className="font-display text-lg">Candidate Bids</h3>
+          <h3 className="font-display text-lg">Candidate Bid and Invitations</h3>
           <p className="text-xs text-slate">Shows all bids: invited (awaiting), submitted (open/closed), and their decision status.</p>
         </div>
         <div className="border-b border-ink/10 bg-paper/60 px-4 py-3">
@@ -952,87 +1055,6 @@ export function CandidateBidsPage() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-ink/10 bg-white p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-display text-lg">Bid Statistics Summary</h3>
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${isFiltered ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-800"}`}>
-            {isFiltered ? "Table is currently filtered (stats below use full dataset)" : "Table unfiltered"}
-          </span>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Total Bids</p>
-            <p className="text-lg font-semibold">{totalBids}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Awaiting</p>
-            <p className="text-lg font-semibold text-amber-600">{invitationPendingCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Pending</p>
-            <p className="text-lg font-semibold">{decisionPendingCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Accepted</p>
-            <p className="text-lg font-semibold text-green-700">{decisionAcceptedCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Rejected</p>
-            <p className="text-lg font-semibold text-red-700">{decisionRejectedCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Open</p>
-            <p className="text-lg font-semibold">{openCount}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="text-xs text-slate">Closed</p>
-            <p className="text-lg font-semibold">{closedCount}</p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium">All Bids Midpoint Stats</p>
-            <p className="text-xs text-slate">Count: {allMidpointStats.count}</p>
-            <p className="text-xs text-slate">Min: {formatStatMoney(allMidpointStats.min)}</p>
-            <p className="text-xs text-slate">Max: {formatStatMoney(allMidpointStats.max)}</p>
-            <p className="text-xs text-slate">Avg: {formatStatMoney(allMidpointStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-green-700">Accepted Midpoint Stats</p>
-            <p className="text-xs text-slate">Count: {acceptedMidpointStats.count}</p>
-            <p className="text-xs text-slate">Min: {formatStatMoney(acceptedMidpointStats.min)}</p>
-            <p className="text-xs text-slate">Max: {formatStatMoney(acceptedMidpointStats.max)}</p>
-            <p className="text-xs text-slate">Avg: {formatStatMoney(acceptedMidpointStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-red-700">Rejected Midpoint Stats</p>
-            <p className="text-xs text-slate">Count: {rejectedMidpointStats.count}</p>
-            <p className="text-xs text-slate">Min: {formatStatMoney(rejectedMidpointStats.min)}</p>
-            <p className="text-xs text-slate">Max: {formatStatMoney(rejectedMidpointStats.max)}</p>
-            <p className="text-xs text-slate">Avg: {formatStatMoney(rejectedMidpointStats.avg)}</p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium">Overall Match Score</p>
-            <p className="text-xs text-slate">Scored bids: {overallMatchScoreStats.count}</p>
-            <p className="text-xs text-slate">Avg: {formatMatchScore(overallMatchScoreStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-green-700">Accepted Match Score</p>
-            <p className="text-xs text-slate">Scored bids: {acceptedMatchScoreStats.count}</p>
-            <p className="text-xs text-slate">Avg: {formatMatchScore(acceptedMatchScoreStats.avg)}</p>
-          </div>
-          <div className="rounded-lg border border-ink/10 p-3 text-sm">
-            <p className="mb-2 text-sm font-medium text-red-700">Rejected Match Score</p>
-            <p className="text-xs text-slate">Scored bids: {rejectedMatchScoreStats.count}</p>
-            <p className="text-xs text-slate">Avg: {formatMatchScore(rejectedMatchScoreStats.avg)}</p>
-          </div>
-        </div>
-      </section>
     </section>
 
     {showCloseBiddingConfirm && (

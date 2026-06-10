@@ -16,8 +16,7 @@ import { AllApplicationsPage } from "./pages/AllApplicationsPage";
 import { BidDetailPage } from "./pages/BidDetailPage";
 import { BidEditPage } from "./pages/BidEditPage";
 import { CandidateBidsPage } from "./pages/CorporatePortalPage";
-import { CompExternalPage } from "./pages/CompExternalPage";
-import { CompInternalPage } from "./pages/CompInternalPage";
+import { CompBenchmarkWorkspacePage } from "./pages/CompBenchmarkWorkspacePage";
 import { CorporateHomePage } from "./pages/CorporateHomePage";
 import { PostRolePage } from "./pages/PostRolePage";
 import { RunConfigsPage } from "./pages/RunConfigsPage";
@@ -41,6 +40,16 @@ function BidIdRedirect() {
 function BidIdEditRedirect() {
   const { bidId } = useParams<{ bidId: string }>();
   return <Navigate to={`/invitations/${bidId}/edit`} replace />;
+}
+
+function LegacyBenchmarkRedirect({ step }: { step: 1 | 2 }) {
+  const { listingId } = useParams<{ listingId?: string }>();
+  const query = new URLSearchParams();
+  if (listingId) {
+    query.set("listing", listingId);
+  }
+  query.set("step", String(step));
+  return <Navigate to={`/compensation-benchmarking/workspace?${query.toString()}`} replace />;
 }
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
@@ -214,9 +223,7 @@ export function App() {
                   }}
                 >
                   {[
-                    { label: "Overview", to: "/compensation-benchmarking", icon: "📊" },
-                    { label: "External", to: "/compensation-benchmarking/external", icon: "🌍" },
-                    { label: "Internal", to: "/compensation-benchmarking/internal", icon: "🏢" },
+                    { label: "Workspace", to: "/compensation-benchmarking/workspace", icon: "📊" },
                   ].map(({ label, to, icon }) => (
                     <Link
                       key={to}
@@ -318,7 +325,7 @@ export function App() {
           <Route path="/" element={<Navigate to="/job-listings" replace />} />
           <Route path="/login" element={<LoginPage />} />
 
-          <Route path="/compensation-benchmarking" element={<Navigate to="/compensation-benchmarking/external" replace />} />
+          <Route path="/compensation-benchmarking" element={<Navigate to="/compensation-benchmarking/workspace" replace />} />
 
           {/* ── Main new-taxonomy routes ── */}
           <Route
@@ -347,33 +354,33 @@ export function App() {
           />
           <Route
             path="/job-listings/:listingId/comp-external"
-            element={
-              <RequireAuth>
-                <CompExternalPage />
-              </RequireAuth>
-            }
+            element={<LegacyBenchmarkRedirect step={2} />}
           />
           <Route
             path="/job-listings/:listingId/comp-internal"
+            element={<LegacyBenchmarkRedirect step={1} />}
+          />
+          <Route
+            path="/job-listings/:listingId/comp-benchmark"
             element={
               <RequireAuth>
-                <CompInternalPage />
+                <CompBenchmarkWorkspacePage />
               </RequireAuth>
             }
           />
           <Route
             path="/compensation-benchmarking/external"
-            element={
-              <RequireAuth>
-                <CompExternalPage />
-              </RequireAuth>
-            }
+            element={<Navigate to="/compensation-benchmarking/workspace?step=2" replace />}
           />
           <Route
             path="/compensation-benchmarking/internal"
+            element={<Navigate to="/compensation-benchmarking/workspace?step=1" replace />}
+          />
+          <Route
+            path="/compensation-benchmarking/workspace"
             element={
               <RequireAuth>
-                <CompInternalPage />
+                <CompBenchmarkWorkspacePage />
               </RequireAuth>
             }
           />

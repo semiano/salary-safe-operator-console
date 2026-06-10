@@ -88,6 +88,25 @@ export async function apiPut<T>(path: string, payload: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function apiPatch<T>(path: string, payload: unknown): Promise<T> {
+  addDebugLog("debug", "api", `PATCH ${path}`, { payload: safeJsonSnippet(payload) });
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: buildHeaders(true),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    addDebugLog("error", "api", `PATCH ${path} failed`, { status: response.status, payload: safeJsonSnippet(payload) });
+    handleAuthFailure(response.status);
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  addDebugLog("info", "api", `PATCH ${path} ok`, { status: response.status });
+
+  return (await response.json()) as T;
+}
+
 export async function apiDelete(path: string): Promise<void> {
   addDebugLog("debug", "api", `DELETE ${path}`);
   const response = await fetch(`${API_BASE}${path}`, {
@@ -127,5 +146,32 @@ export async function apiGetPublic<T>(path: string): Promise<T> {
     throw new Error(`Request failed: ${response.status}`);
   }
 
+  return (await response.json()) as T;
+}
+
+/**
+ * Upload a file (multipart/form-data). Do NOT set Content-Type — the browser
+ * sets it automatically with the correct multipart boundary.
+ */
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  addDebugLog("debug", "api", `UPLOAD ${path}`);
+  const token = getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    addDebugLog("error", "api", `UPLOAD ${path} failed`, { status: response.status });
+    handleAuthFailure(response.status);
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  addDebugLog("info", "api", `UPLOAD ${path} ok`, { status: response.status });
   return (await response.json()) as T;
 }
