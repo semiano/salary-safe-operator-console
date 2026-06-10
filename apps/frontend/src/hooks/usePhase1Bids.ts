@@ -140,6 +140,19 @@ export function useSendPhase1BidResponse() {
   });
 }
 
+export function useAiAutoRespondPhase1Bid() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (bidId: string) => apiPost<Phase1Bid>(`/applications/${bidId}/ai-auto-respond`, {}),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["phase1-bid-detail", updated.id] });
+      queryClient.invalidateQueries({ queryKey: ["phase1-bids", updated.case_id] });
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
+      queryClient.invalidateQueries({ queryKey: ["listing-applications", updated.case_id] });
+    },
+  });
+}
+
 export function useBulkDecidePhase1Bids() {
   const queryClient = useQueryClient();
   return useMutation({

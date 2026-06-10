@@ -6,6 +6,7 @@ import { WorkdayBenchmarkPanel } from "../components/WorkdayBenchmarkPanel";
 
 import { useCases, useUpdateCaseGuidance, useUpdateCaseStatus } from "../hooks/useCases";
 import {
+  useAiAutoRespondPhase1Bid,
   useBulkDecidePhase1Bids,
   usePhase1Bids,
   useSavePhase1BidResponseMessage,
@@ -151,7 +152,7 @@ function formatListingValue(value: unknown): string {
 function truncateText(value: string, maxLength: number): string {
   const trimmed = value.trim();
   if (trimmed.length <= maxLength) return trimmed;
-  return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+  return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}\u2026`;
 }
 
 type BidLike = {
@@ -230,6 +231,7 @@ export function CandidateBidsPage() {
   const [responseEdits, setResponseEdits] = useState<Record<string, string>>({});
 
   const bulkDecide = useBulkDecidePhase1Bids();
+  const aiAutoRespond = useAiAutoRespondPhase1Bid();
   const updateDecision = useUpdatePhase1BidDecision();
   const saveResponse = useSavePhase1BidResponseMessage();
   const sendResponse = useSendPhase1BidResponse();
@@ -623,7 +625,7 @@ export function CandidateBidsPage() {
 
       {selectedCaseLlmPayload ? (
         <section className="overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-sm">
-          <details className="border-b border-ink/10 bg-paper/60 px-4 py-3">
+          <details className="px-4 py-3">
             <summary className="cursor-pointer list-none">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -642,18 +644,16 @@ export function CandidateBidsPage() {
             </summary>
 
             <div className="mt-4 rounded-xl border border-ink/10 bg-white p-4 text-sm">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  {copyStatusText ? <span className="text-xs text-slate">{copyStatusText}</span> : null}
-                  <button
-                    className="rounded-full border border-ink/20 bg-white px-3 py-1 text-xs hover:bg-ink hover:text-paper"
-                    type="button"
-                    onClick={handleCopyLlmContextJson}
-                  >
-                    Copy LLM Context JSON
-                  </button>
-                  <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[11px] text-ink/80">Sent with each AI Calculate Matches run</span>
-                </div>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                {copyStatusText ? <span className="text-xs text-slate">{copyStatusText}</span> : null}
+                <button
+                  className="rounded-full border border-ink/20 bg-white px-3 py-1 text-xs hover:bg-ink hover:text-paper"
+                  type="button"
+                  onClick={handleCopyLlmContextJson}
+                >
+                  Copy LLM Context JSON
+                </button>
+                <span className="rounded-full bg-ink/10 px-2 py-0.5 text-[11px] text-ink/80">Sent with each AI Calculate Matches run</span>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -995,6 +995,17 @@ export function CandidateBidsPage() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-col gap-2">
+                        {isAdmin && isAwaiting ? (
+                          <button
+                            className="rounded-full bg-orange-500 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            type="button"
+                            disabled={aiAutoRespond.isPending}
+                            title="AI simulates candidate response and auto-matches (Admin only)"
+                            onClick={() => aiAutoRespond.mutate(bid.id)}
+                          >
+                            {aiAutoRespond.isPending ? "⏳ Working…" : "🤖 AI Auto-respond"}
+                          </button>
+                        ) : null}
                         <Link
                           className="rounded-full border border-ink/20 px-3 py-1 text-xs text-center hover:bg-ink hover:text-paper"
                           to={`/invitations/${bid.id}`}

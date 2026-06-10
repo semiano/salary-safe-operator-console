@@ -1652,6 +1652,7 @@ export function PostRolePage() {
                     type="number"
                     min={0}
                     max={200}
+                    step="any"
                     value={bonusTargetPct}
                     onChange={(e) => setBonusTargetPct(e.target.value)}
                     placeholder="e.g. 15"
