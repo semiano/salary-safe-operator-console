@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiDelete, apiGet, apiPost, apiPut } from "../api/client";
-import type { BidStats, Phase1Bid } from "../types/api";
+import type { BidStats, Phase1Bid, Phase1BidHistoryEvent } from "../types/api";
 
 export type Phase1BidCreatePayload = {
   caseId: string;
@@ -137,6 +137,43 @@ export function useSendPhase1BidResponse() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["phase1-bids", updated.case_id] });
     },
+  });
+}
+
+export function useSendPhase1BidMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { bidId: string; subject: string; message: string }) =>
+      apiPost<Phase1Bid>(`/phase1-bids/${payload.bidId}/send-message`, {
+        subject: payload.subject,
+        message: payload.message,
+      }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["phase1-bid-history", updated.id] });
+      queryClient.invalidateQueries({ queryKey: ["phase1-bids", updated.case_id] });
+    },
+  });
+}
+
+export function useClosePhase1Bid() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { bidId: string; response_message?: string }) =>
+      apiPost<Phase1Bid>(`/phase1-bids/${payload.bidId}/close`, {
+        response_message: payload.response_message ?? null,
+      }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["phase1-bid-history", updated.id] });
+      queryClient.invalidateQueries({ queryKey: ["phase1-bids", updated.case_id] });
+    },
+  });
+}
+
+export function useBidHistory(bidId: string | null) {
+  return useQuery({
+    queryKey: ["phase1-bid-history", bidId],
+    queryFn: () => apiGet<Phase1BidHistoryEvent[]>(`/phase1-bids/${bidId}/history`),
+    enabled: Boolean(bidId),
   });
 }
 

@@ -82,3 +82,34 @@ class Phase1Bid(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     invitation_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     case: Mapped[NegotiationCase] = relationship(back_populates="phase1_bids")
+    events: Mapped[list["Phase1BidEvent"]] = relationship(
+        back_populates="bid",
+        cascade="all, delete-orphan",
+        order_by="desc(Phase1BidEvent.created_at)",
+    )
+
+
+class Phase1BidEvent(Base, UUIDPrimaryKeyMixin):
+    __tablename__ = "candidate_application_events"
+
+    bid_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("candidate_applications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_listings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(30), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    bid: Mapped[Phase1Bid] = relationship(back_populates="events")

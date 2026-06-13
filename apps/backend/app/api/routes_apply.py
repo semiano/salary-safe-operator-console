@@ -27,12 +27,56 @@ from app.services.phase1_bid_service import (
     DECISION_PENDING,
     DECISION_REJECTED,
     SUBMISSION_STATUS_INVITATION_PENDING,
+    SUBMISSION_STATUS_SUBMITTED,
     Phase1BidService,
 )
+from app.services.config_service import ConfigService
+from app.services.mail_service import send_bid_response
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["apply"])
+
+
+def _should_auto_send_response(*, decision_status: str, match_score: float | None, threshold: float) -> bool:
+    if decision_status != DECISION_ACCEPTED:
+        return False
+    if match_score is None:
+        return False
+    return match_score >= threshold
+
+
+def _send_response_with_email(service: Phase1BidService, bid) -> None:
+    updated = service.send_response(bid)
+    if not updated.candidate_email:
+        return
+
+    case = service.get_case(updated.case_id)
+    role_title = case.title if case else "the role"
+    subject = f"Update on your bid for {role_title}"
+    try:
+        send_bid_response(
+            candidate_name=updated.candidate_name or "",
+            candidate_email=updated.candidate_email,
+            role_title=role_title,
+            decision=updated.decision_status or "pending",
+            response_message=updated.response_message,
+        )
+        service.log_message_event(
+            bid=updated,
+            event_type="email_delivery",
+            title="Response email delivered",
+            detail="Final response email was sent to the candidate.",
+            payload={"channel": "email", "status": "sent", "subject": subject},
+        )
+    except Exception:  # noqa: BLE001
+        service.log_message_event(
+            bid=updated,
+            event_type="email_delivery",
+            title="Response email failed",
+            detail="Final response email failed to send.",
+            payload={"channel": "email", "status": "failed", "subject": subject},
+        )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -153,6 +197,7 @@ async def _run_ai_match_for_bid(bid_id: UUID) -> None:
     db = SessionLocal()
     try:
         service = Phase1BidService(db)
+        config_service = ConfigService(db)
         bid = service.get_bid(bid_id)
         if bid is None or bid.decision_status != DECISION_PENDING:
             return
@@ -207,13 +252,24 @@ async def _run_ai_match_for_bid(bid_id: UUID) -> None:
         except (TypeError, ValueError):
             match_score = None
 
-        service.update_decision(
+        updated = service.update_decision(
             bid=bid,
             decision_status=decision,
             match_score=match_score,
             decision_reason=str(parsed.get("decision_reason", "")).strip() or None,
             response_message=str(parsed.get("response_message", "")).strip() or None,
         )
+
+        threshold = config_service.get_auto_accept_match_threshold()
+        if (
+            updated.submission_status == SUBMISSION_STATUS_SUBMITTED
+            and _should_auto_send_response(
+                decision_status=updated.decision_status,
+                match_score=updated.match_score,
+                threshold=threshold,
+            )
+        ):
+            _send_response_with_email(service, updated)
     except Exception as exc:
         logger.warning("Auto AI match failed for bid %s: %s", bid_id, exc)
     finally:

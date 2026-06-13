@@ -14,3 +14,10 @@ class RunConfig(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("job_listings.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+
+class GlobalSetting(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "global_settings"
+
+    setting_key: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    value_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

@@ -135,6 +135,40 @@ def send_bid_invitation(
     send_email(to=candidate_email, subject=subject, body_html=body)
 
 
+def send_bid_invitation_reminder(
+        *,
+        candidate_name: str,
+        candidate_email: str,
+        role_title: str,
+        apply_url: str,
+        company_name: str = "Hiring Team",
+) -> None:
+        """Send a reminder email for an outstanding bid invitation."""
+        subject = f"Reminder: submit your salary bid for {role_title}"
+        body = f"""
+        <html><body style="font-family: sans-serif; color: #111; max-width: 560px; margin: 0 auto; padding: 24px;">
+            <h2 style="color: #f97316;">Reminder to submit your bid</h2>
+            <p>Hi {candidate_name or "there"},</p>
+            <p>
+                This is a reminder from <strong>{company_name}</strong> to submit your salary expectations
+                for the <strong>{role_title}</strong> role using SalarySafe.
+            </p>
+            <p style="margin: 24px 0;">
+                <a href="{apply_url}"
+                     style="background:#f97316;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">
+                    Complete My Bid
+                </a>
+            </p>
+            <p style="font-size:12px;color:#888;">Or copy this link: {apply_url}</p>
+            <hr style="border:none;border-top:1px solid #e4e4e7;margin:24px 0;">
+            <p style="font-size:12px;color:#aaa;">
+                This reminder was sent via SalarySafe. If you didn't expect this email, you can safely ignore it.
+            </p>
+        </body></html>
+        """
+        send_email(to=candidate_email, subject=subject, body_html=body)
+
+
 def send_bid_response(
     *,
     candidate_name: str,

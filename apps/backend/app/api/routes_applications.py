@@ -14,6 +14,8 @@ from app.models.case import Phase1Bid
 from app.models.user import User
 from app.schemas.phase1_bid import (
     BidStats,
+    Phase1BidBulkNudgeRequest,
+    Phase1BidBulkNudgeResult,
     Phase1BidBulkDecisionRequest,
     Phase1BidBulkDecisionResult,
     Phase1BidBulkInviteRequest,
@@ -26,9 +28,53 @@ from app.schemas.phase1_bid import (
     Phase1BidSimulateRequest,
     Phase1BidUpdateRequest,
 )
+from app.services.mail_service import send_bid_invitation_reminder, send_bid_response
 from app.services.phase1_bid_service import Phase1BidService
+from app.services.config_service import ConfigService
 
 router = APIRouter(tags=["applications"], dependencies=[Depends(get_current_user)])
+
+
+def _should_auto_send_response(*, decision_status: str, match_score: float | None, threshold: float) -> bool:
+    if decision_status != "accepted":
+        return False
+    if match_score is None:
+        return False
+    return match_score >= threshold
+
+
+def _send_response_with_email(service: Phase1BidService, bid: Phase1Bid) -> Phase1Bid:
+    updated = service.send_response(bid)
+    if not updated.candidate_email:
+        return updated
+
+    case = service.get_case(updated.case_id)
+    role_title = case.title if case else "the role"
+    subject = f"Update on your bid for {role_title}"
+    try:
+        send_bid_response(
+            candidate_name=updated.candidate_name or "",
+            candidate_email=updated.candidate_email,
+            role_title=role_title,
+            decision=updated.decision_status or "pending",
+            response_message=updated.response_message,
+        )
+        service.log_message_event(
+            bid=updated,
+            event_type="email_delivery",
+            title="Response email delivered",
+            detail="Final response email was sent to the candidate.",
+            payload={"channel": "email", "status": "sent", "subject": subject},
+        )
+    except Exception:  # noqa: BLE001
+        service.log_message_event(
+            bid=updated,
+            event_type="email_delivery",
+            title="Response email failed",
+            detail="Final response email failed to send.",
+            payload={"channel": "email", "status": "failed", "subject": subject},
+        )
+    return updated
 
 
 # ── Shared response helper ────────────────────────────────────────────────────
@@ -206,6 +252,18 @@ async def bulk_decide_applications(
     result = await provider.generate(system_prompt=system_prompt, messages=[{"role": "user", "content": user_prompt}], temperature=0.1)
     decisions = service.parse_bulk_decisions_json(str(result.get("content", "")))
     processed_count, updated_ids = service.apply_bulk_decisions(bids=open_bids, decisions_payload=decisions)
+    threshold = ConfigService(db).get_auto_accept_match_threshold()
+    for updated_id in updated_ids:
+        updated_bid = service.get_bid(updated_id)
+        if updated_bid is None or updated_bid.submission_status != "applicant_bid_submitted":
+            continue
+        if _should_auto_send_response(
+            decision_status=updated_bid.decision_status,
+            match_score=updated_bid.match_score,
+            threshold=threshold,
+        ):
+            _send_response_with_email(service, updated_bid)
+
     return Phase1BidBulkDecisionResult(
         processed_count=processed_count,
         skipped_count=len(open_bids) - processed_count,
@@ -261,6 +319,57 @@ def get_listing_bid_stats(listing_id: UUID, db: Session = Depends(get_db)) -> Bi
 def list_all_applications(db: Session = Depends(get_db)) -> list[Phase1BidResponse]:
     service = Phase1BidService(db)
     return [_to_response(b) for b in service.list_all()]
+
+
+@router.post("/applications/nudge-awaiting", response_model=Phase1BidBulkNudgeResult)
+def nudge_awaiting_applications(
+    payload: Phase1BidBulkNudgeRequest,
+    db: Session = Depends(get_db),
+) -> Phase1BidBulkNudgeResult:
+    service = Phase1BidService(db)
+    nudged_ids: list[UUID] = []
+    skipped_count = 0
+
+    for application_id in payload.application_ids:
+        bid = service.get_bid(application_id)
+        if bid is None or bid.submission_status != "invitation_pending" or not bid.candidate_email or not bid.invitation_code:
+            skipped_count += 1
+            continue
+
+        case = service.get_case(bid.case_id)
+        role_title = case.title if case else "the role"
+        apply_url = f"http://159.65.237.234/apply/{bid.invitation_code}"
+        try:
+            send_bid_invitation_reminder(
+                candidate_name=bid.candidate_name or "",
+                candidate_email=bid.candidate_email,
+                role_title=role_title,
+                apply_url=apply_url,
+            )
+            service.log_message_event(
+                bid=bid,
+                event_type="invitation_nudged",
+                title="Reminder sent",
+                detail="Candidate was nudged to respond to the invitation.",
+                payload={"channel": "email", "status": "sent", "subject": f"Reminder: submit your salary bid for {role_title}"},
+            )
+            nudged_ids.append(bid.id)
+        except Exception:  # noqa: BLE001
+            service.log_message_event(
+                bid=bid,
+                event_type="invitation_nudged",
+                title="Reminder failed",
+                detail="Candidate reminder email failed to send.",
+                payload={"channel": "email", "status": "failed", "subject": f"Reminder: submit your salary bid for {role_title}"},
+            )
+            skipped_count += 1
+
+    return Phase1BidBulkNudgeResult(
+        requested_count=len(payload.application_ids),
+        nudged_count=len(nudged_ids),
+        skipped_count=skipped_count,
+        nudged_application_ids=nudged_ids,
+    )
 
 
 @router.get("/applications/{application_id}", response_model=Phase1BidResponse)
@@ -459,5 +568,16 @@ async def ai_auto_respond_application(
             decision_reason=decision_reason,
             response_message=response_message,
         )
+
+        threshold = ConfigService(db).get_auto_accept_match_threshold()
+        if (
+            bid.submission_status == "applicant_bid_submitted"
+            and _should_auto_send_response(
+                decision_status=bid.decision_status,
+                match_score=bid.match_score,
+                threshold=threshold,
+            )
+        ):
+            bid = _send_response_with_email(service, bid)
 
     return _to_response(bid)

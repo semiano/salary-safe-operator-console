@@ -12,23 +12,68 @@ from app.models.user import User
 from app.schemas.phase1_bid import (
     BidStats,
     CaseBidStatsResponse,
+    Phase1BidCloseRequest,
     Phase1BidBulkDecisionRequest,
     Phase1BidBulkDecisionResult,
     Phase1BidBulkInviteRequest,
     Phase1BidCreateRequest,
     Phase1BidDecisionUpdateRequest,
+    Phase1BidHistoryEventResponse,
     Phase1BidInviteRequest,
     Phase1BidRandomGenerateRequest,
     Phase1BidRandomGenerateResult,
     Phase1BidResponse,
     Phase1BidResponseMessageUpdateRequest,
+    Phase1BidSendMessageRequest,
     Phase1BidSimulateRequest,
     Phase1BidUpdateRequest,
 )
-from app.services.mail_service import send_bid_invitation, send_bid_response
+from app.services.mail_service import send_bid_invitation, send_bid_response, send_email
+from app.services.config_service import ConfigService
 from app.services.phase1_bid_service import Phase1BidService
 
 router = APIRouter(tags=["phase1-bids"], dependencies=[Depends(get_current_user)])
+
+
+def _should_auto_send_response(*, decision_status: str, match_score: float | None, threshold: float) -> bool:
+    if decision_status != "accepted":
+        return False
+    if match_score is None:
+        return False
+    return match_score >= threshold
+
+
+def _send_response_with_email(service: Phase1BidService, bid: Phase1Bid) -> Phase1Bid:
+    updated = service.send_response(bid)
+
+    if updated.candidate_email:
+        case = service.get_case(updated.case_id)
+        subject = f"Update on your bid for {case.title if case else 'the role'}"
+        try:
+            send_bid_response(
+                candidate_name=updated.candidate_name or "",
+                candidate_email=updated.candidate_email,
+                role_title=case.title if case else "the role",
+                decision=updated.decision_status or "pending",
+                response_message=updated.response_message,
+            )
+            service.log_message_event(
+                bid=updated,
+                event_type="email_delivery",
+                title="Response email delivered",
+                detail="Final response email was sent to the candidate.",
+                payload={"channel": "email", "status": "sent", "subject": subject},
+            )
+        except Exception:  # noqa: BLE001
+            service.log_message_event(
+                bid=updated,
+                event_type="email_delivery",
+                title="Response email failed",
+                detail="Final response email failed to send.",
+                payload={"channel": "email", "status": "failed", "subject": subject},
+            )
+
+    return updated
 
 
 def _as_nonempty_str(value: Any) -> str | None:
@@ -183,6 +228,29 @@ def get_phase1_bid(bid_id: UUID, db: Session = Depends(get_db)) -> Phase1BidResp
     return _to_response(bid)
 
 
+@router.get("/phase1-bids/{bid_id}/history", response_model=list[Phase1BidHistoryEventResponse])
+def get_phase1_bid_history(bid_id: UUID, db: Session = Depends(get_db)) -> list[Phase1BidHistoryEventResponse]:
+    service = Phase1BidService(db)
+    bid = service.get_bid(bid_id)
+    if bid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phase 1 bid not found")
+    return [
+        Phase1BidHistoryEventResponse(
+            id=event.id,
+            bid_id=event.bid_id,
+            case_id=event.case_id,
+            tenant_id=event.tenant_id,
+            category=event.category,
+            event_type=event.event_type,
+            title=event.title,
+            detail=event.detail,
+            payload_json=event.payload_json,
+            created_at=event.created_at,
+        )
+        for event in service.list_history(bid_id)
+    ]
+
+
 @router.put("/phase1-bids/{bid_id}", response_model=Phase1BidResponse)
 def update_phase1_bid(
     bid_id: UUID,
@@ -250,21 +318,69 @@ def send_phase1_bid_response(bid_id: UUID, db: Session = Depends(get_db)) -> Pha
     if bid is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phase 1 bid not found")
 
-    updated = service.send_response(bid)
+    updated = _send_response_with_email(service, bid)
 
-    # Fire-and-forget email (errors are logged, never bubble up)
-    if updated.candidate_email:
-        case = service.get_case(updated.case_id)
-        try:
-            send_bid_response(
-                candidate_name=updated.candidate_name or "",
-                candidate_email=updated.candidate_email,
-                role_title=case.title if case else "the role",
-                decision=updated.decision_status or "pending",
-                response_message=updated.response_message,
-            )
-        except Exception:  # noqa: BLE001
-            pass
+    return _to_response(updated)
+
+
+@router.post("/phase1-bids/{bid_id}/send-message", response_model=Phase1BidResponse)
+def send_phase1_bid_message(
+    bid_id: UUID,
+    payload: Phase1BidSendMessageRequest,
+    db: Session = Depends(get_db),
+) -> Phase1BidResponse:
+    service = Phase1BidService(db)
+    bid = service.get_bid(bid_id)
+    if bid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phase 1 bid not found")
+    if not bid.candidate_email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Candidate email is required to send a message")
+
+    body = (
+        "<html><body style=\"font-family: sans-serif; color: #111; max-width: 560px; margin: 0 auto; padding: 24px;\">"
+        f"<p>Hi {bid.candidate_name or 'there'},</p>"
+        f"<p>{payload.message}</p>"
+        "<p>Thank you,<br/>SalarySafe Hiring Team</p>"
+        "</body></html>"
+    )
+    try:
+        send_email(to=bid.candidate_email, subject=payload.subject, body_html=body)
+        service.log_message_event(
+            bid=bid,
+            event_type="manual_message_sent",
+            title="Message sent",
+            detail="Operator sent a direct message email to candidate.",
+            payload={"channel": "email", "status": "sent", "subject": payload.subject},
+        )
+    except Exception:  # noqa: BLE001
+        service.log_message_event(
+            bid=bid,
+            event_type="manual_message_sent",
+            title="Message send failed",
+            detail="Operator message email failed to send.",
+            payload={"channel": "email", "status": "failed", "subject": payload.subject},
+        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to send email")
+
+    return _to_response(bid)
+
+
+@router.post("/phase1-bids/{bid_id}/close", response_model=Phase1BidResponse)
+def close_phase1_bid(
+    bid_id: UUID,
+    payload: Phase1BidCloseRequest,
+    db: Session = Depends(get_db),
+) -> Phase1BidResponse:
+    service = Phase1BidService(db)
+    bid = service.get_bid(bid_id)
+    if bid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phase 1 bid not found")
+
+    if payload.response_message and payload.response_message.strip():
+        service.update_response_message(bid=bid, response_message=payload.response_message)
+        bid = service.get_bid(bid_id) or bid
+
+    updated = _send_response_with_email(service, bid)
 
     return _to_response(updated)
 
@@ -323,6 +439,18 @@ async def bulk_decide_phase1_bids(
     decisions = service.parse_bulk_decisions_json(str(result.get("content", "")))
 
     processed_count, updated_ids = service.apply_bulk_decisions(bids=open_bids, decisions_payload=decisions)
+    threshold = ConfigService(db).get_auto_accept_match_threshold()
+    for updated_id in updated_ids:
+        updated_bid = service.get_bid(updated_id)
+        if updated_bid is None or updated_bid.submission_status != "applicant_bid_submitted":
+            continue
+        if _should_auto_send_response(
+            decision_status=updated_bid.decision_status,
+            match_score=updated_bid.match_score,
+            threshold=threshold,
+        ):
+            _send_response_with_email(service, updated_bid)
+
     skipped_count = len(open_bids) - processed_count
 
     return Phase1BidBulkDecisionResult(processed_count=processed_count, skipped_count=skipped_count, updated_bid_ids=updated_ids)

@@ -15,7 +15,16 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "`n==> Backend tests"
 Set-Location (Join-Path $root "apps\backend")
-c:/python313/python.exe -m unittest discover -s tests -p "test_*.py" -v
+
+$venvPython = Join-Path $root ".venv-1\Scripts\python.exe"
+$backendPython = if (Test-Path $venvPython) { $venvPython } else { "c:/python313/python.exe" }
+
+& $backendPython -m pip install -r requirements.txt
+if ($LASTEXITCODE -ne 0) {
+    throw "Backend dependency install failed with exit code $LASTEXITCODE"
+}
+
+& $backendPython -m unittest discover -s tests -p "test_*.py" -v
 if ($LASTEXITCODE -ne 0) {
     throw "Backend tests failed with exit code $LASTEXITCODE"
 }

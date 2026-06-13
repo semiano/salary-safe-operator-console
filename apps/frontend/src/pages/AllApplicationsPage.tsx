@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { getTokenRole } from "../auth/token";
-import { useAiAutoRespond, useAllApplications } from "../hooks/useApplications";
+import { useAiAutoRespond, useAllApplications, useNudgeAwaitingApplications } from "../hooks/useApplications";
+import { useBidHistory, useClosePhase1Bid, useSendPhase1BidMessage } from "../hooks/usePhase1Bids";
 import type { Phase1Bid } from "../types/api";
 
 // ── Brand tokens ──────────────────────────────────────────────────────────────
@@ -78,6 +79,29 @@ function daysSince(iso: string | null | undefined): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 }
 
+function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return "-";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "-";
+  return dt.toLocaleString();
+}
+
+function buildDefaultMessageSubject(roleTitle: string | null, mode: "message" | "close"): string {
+  const role = roleTitle?.trim() || "this role";
+  return mode === "close" ? `Final update on your bid for ${role}` : `Update regarding your invitation for ${role}`;
+}
+
+function buildDefaultCloseMessage(candidateName: string | null, decisionStatus: "pending" | "accepted" | "rejected"): string {
+  const greeting = `Hi ${candidateName || "there"},`;
+  if (decisionStatus === "accepted") {
+    return `${greeting}\n\nThank you for your submission. We are pleased to let you know your bid has been accepted.\n\nBest regards,\nSalarySafe Hiring Team`;
+  }
+  if (decisionStatus === "rejected") {
+    return `${greeting}\n\nThank you for your submission and interest. After review, we will not be moving forward with your bid at this time.\n\nBest regards,\nSalarySafe Hiring Team`;
+  }
+  return `${greeting}\n\nThank you for your submission. We are sharing an update on your bid.\n\nBest regards,\nSalarySafe Hiring Team`;
+}
+
 function DecisionBadge({ status }: { status: string }) {
   const s = DECISION_LEGEND.find((d) => d.key === status) ?? DECISION_LEGEND[0];
   return (
@@ -130,6 +154,9 @@ type SortKey = "newest" | "oldest" | "submitted" | "name_az" | "name_za" | "job_
 
 export function AllApplicationsPage() {
   const { data: applications, isLoading } = useAllApplications();
+  const nudgeAwaiting = useNudgeAwaitingApplications();
+  const sendMessage = useSendPhase1BidMessage();
+  const closeBid = useClosePhase1Bid();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdmin = getTokenRole() === "admin";
@@ -142,6 +169,13 @@ export function AllApplicationsPage() {
   const [jobFilter, setJobFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [activeStatFilter, setActiveStatFilter] = useState("all");
+  const [historyBidId, setHistoryBidId] = useState<string | null>(null);
+  const [messageBidId, setMessageBidId] = useState<string | null>(null);
+  const [messageMode, setMessageMode] = useState<"message" | "close">("message");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageBody, setMessageBody] = useState("");
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const { data: historyEvents, isLoading: historyLoading } = useBidHistory(historyBidId);
 
   const bids = applications ?? [];
   const total = bids.length;
@@ -211,6 +245,61 @@ export function AllApplicationsPage() {
     });
 
   const hasFilter = listingIdFilter !== null || searchQuery.trim() !== "" || decisionFilter !== "all" || stageFilter !== "all" || jobFilter !== "all" || activeStatFilter !== "all";
+  const historyBid = bids.find((b) => b.id === historyBidId) ?? null;
+  const messageBid = bids.find((b) => b.id === messageBidId) ?? null;
+  const visibleAwaitingBids = visibleBids.filter((bid) => bid.submission_status === "invitation_pending");
+
+  function openMessageDialog(bid: Phase1Bid, mode: "message" | "close") {
+    if (mode === "close" && bid.decision_status === "pending") {
+      window.alert("Cannot close while decision status is pending.");
+      return;
+    }
+    setMessageBidId(bid.id);
+    setMessageMode(mode);
+    setMessageSubject(buildDefaultMessageSubject(bid.job_title, mode));
+    setMessageBody(
+      mode === "close"
+        ? (bid.response_message || buildDefaultCloseMessage(bid.candidate_name, bid.decision_status)).trim()
+        : `Hi ${bid.candidate_name || "there"},\n\nWe wanted to share an update on your invitation.\n\nBest regards,\nSalarySafe Hiring Team`,
+    );
+    setMessageError(null);
+  }
+
+  async function handleSubmitMessageDialog() {
+    if (!messageBid) return;
+    const subject = messageSubject.trim();
+    const body = messageBody.trim();
+    if (!subject || !body) {
+      setMessageError("Subject and message are required.");
+      return;
+    }
+    if (messageMode === "close" && messageBid.decision_status === "pending") {
+      setMessageError("Cannot close while decision status is pending.");
+      return;
+    }
+
+    setMessageError(null);
+    if (messageMode === "message") {
+      await sendMessage.mutateAsync({ bidId: messageBid.id, subject, message: body });
+    } else {
+      await closeBid.mutateAsync({ bidId: messageBid.id, response_message: body });
+    }
+    setMessageBidId(null);
+  }
+
+  async function handleNudgeAwaiting() {
+    if (visibleAwaitingBids.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `This will send reminder emails to ${visibleAwaitingBids.length} awaiting candidate${visibleAwaitingBids.length === 1 ? "" : "s"}. This may trigger outbound email immediately. Continue?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    const result = await nudgeAwaiting.mutateAsync(visibleAwaitingBids.map((bid) => bid.id));
+    window.alert(`Nudge complete: ${result.nudged_count} sent${result.skipped_count > 0 ? `, ${result.skipped_count} skipped/failed` : ""}.`);
+  }
 
   function clearFilters() {
     setSearchQuery("");
@@ -354,6 +443,16 @@ export function AllApplicationsPage() {
           </button>
         )}
 
+        <button
+          type="button"
+          disabled={visibleAwaitingBids.length === 0 || nudgeAwaiting.isPending}
+          onClick={handleNudgeAwaiting}
+          title={visibleAwaitingBids.length === 0 ? "No awaiting invitations in the current table view" : "Send reminder notifications to all awaiting candidates in the current table view"}
+          style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: `1px solid ${visibleAwaitingBids.length === 0 ? BORDER : "#f59e0b"}`, borderRadius: 20, background: visibleAwaitingBids.length === 0 ? "#f4f4f5" : "#fff7ed", color: visibleAwaitingBids.length === 0 ? MUTED : "#92400e", cursor: visibleAwaitingBids.length === 0 || nudgeAwaiting.isPending ? "not-allowed" : "pointer", fontFamily: "inherit", whiteSpace: "nowrap", opacity: visibleAwaitingBids.length === 0 || nudgeAwaiting.isPending ? 0.7 : 1 }}
+        >
+          {nudgeAwaiting.isPending ? "Nudging..." : `Nudge non-responders (${visibleAwaitingBids.length})`}
+        </button>
+
         <span style={{ fontSize: 12, color: MUTED, marginLeft: "auto", whiteSpace: "nowrap" }}>
           {visibleBids.length} of {total} application{total !== 1 ? "s" : ""}
         </span>
@@ -373,7 +472,7 @@ export function AllApplicationsPage() {
                 Decision
                 <LegendPopover title="Hiring Decision" items={DECISION_LEGEND} />
               </th>
-              <th style={{ padding: "0.6rem 12px", textAlign: "right", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Received</th>
+              <th style={{ padding: "0.6rem 12px", textAlign: "right", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Invitation Date</th>
               <th style={{ padding: "0.6rem 1.25rem", textAlign: "right", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Actions</th>
             </tr>
           </thead>
@@ -426,12 +525,87 @@ export function AllApplicationsPage() {
                   dateLabel={dateLabel}
                   isAdmin={isAdmin}
                   navigate={navigate}
+                  onOpenHistory={() => setHistoryBidId(bid.id)}
+                  onOpenMessage={(mode) => openMessageDialog(bid, mode)}
                 />
               );
             })}
           </tbody>
         </table>
       </div>
+
+      {historyBid && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 90 }} onClick={() => setHistoryBidId(null)}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.35)" }} />
+          <aside
+            style={{ position: "absolute", right: 0, top: 0, height: "100%", width: "min(560px, 100%)", background: "#fff", borderLeft: `1px solid ${BORDER}`, boxShadow: "0 10px 30px rgba(0,0,0,.25)", overflowY: "auto", padding: "1rem" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: 12 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, color: NAVY }}>Invitation History</h3>
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: MUTED }}>{historyBid.candidate_name ?? historyBid.applicant_identifier}</p>
+              </div>
+              <button type="button" onClick={() => setHistoryBidId(null)} style={{ border: `1px solid ${BORDER}`, borderRadius: 999, background: "#fff", padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>Close</button>
+            </div>
+
+            {historyLoading ? (
+              <p style={{ fontSize: 13, color: MUTED }}>Loading history...</p>
+            ) : (historyEvents ?? []).length === 0 ? (
+              <p style={{ fontSize: 13, color: MUTED }}>No history found for this invitation yet.</p>
+            ) : (
+              <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 10 }}>
+                {(historyEvents ?? []).map((event) => (
+                  <li key={event.id} style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ background: event.category === "message" ? "#dbeafe" : "#f4f4f5", color: event.category === "message" ? "#1d4ed8" : "#52525b", borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", padding: "2px 8px" }}>
+                        {event.category}
+                      </span>
+                      <span style={{ fontSize: 11, color: FAINT }}>{formatDateTime(event.created_at)}</span>
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: "#111" }}>{event.title}</div>
+                    {event.detail ? <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>{event.detail}</div> : null}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </aside>
+        </div>
+      )}
+
+      {messageBid && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 95, background: "rgba(0,0,0,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => setMessageBidId(null)}>
+          <div style={{ width: "min(760px, 100%)", background: "#fff", borderRadius: 14, boxShadow: "0 12px 30px rgba(0,0,0,.28)", padding: "1rem" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12, marginBottom: 10 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, color: NAVY }}>{messageMode === "close" ? "Close Invitation" : "Send Message"}</h3>
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: MUTED }}>{messageBid.candidate_name ?? messageBid.applicant_identifier}</p>
+              </div>
+              <button type="button" onClick={() => setMessageBidId(null)} style={{ border: `1px solid ${BORDER}`, borderRadius: 999, background: "#fff", padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+            </div>
+
+            <label style={{ display: "block", marginBottom: 4, fontSize: 12, fontWeight: 600, color: MUTED }}>Subject</label>
+            <input value={messageSubject} onChange={(e) => setMessageSubject(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${BORDER}`, borderRadius: R_MD, marginBottom: 10 }} />
+
+            <label style={{ display: "block", marginBottom: 4, fontSize: 12, fontWeight: 600, color: MUTED }}>Message</label>
+            <textarea value={messageBody} onChange={(e) => setMessageBody(e.target.value)} style={{ width: "100%", minHeight: 170, boxSizing: "border-box", padding: "8px 10px", border: `1px solid ${BORDER}`, borderRadius: R_MD, resize: "vertical" }} />
+
+            {messageError ? <p style={{ margin: "8px 0 0", fontSize: 12, color: "#b91c1c" }}>{messageError}</p> : null}
+
+            <div style={{ marginTop: 12, display: "flex", justifyContent: "end", gap: 8 }}>
+              <button type="button" onClick={() => setMessageBidId(null)} style={{ border: `1px solid ${BORDER}`, borderRadius: 999, background: "#fff", padding: "7px 14px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              <button
+                type="button"
+                disabled={sendMessage.isPending || closeBid.isPending}
+                onClick={handleSubmitMessageDialog}
+                style={{ border: "none", borderRadius: 999, background: B, color: "#fff", padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: sendMessage.isPending || closeBid.isPending ? "not-allowed" : "pointer", opacity: sendMessage.isPending || closeBid.isPending ? 0.7 : 1 }}
+              >
+                {sendMessage.isPending || closeBid.isPending ? "Sending..." : messageMode === "close" ? "Close and Send" : "Send Message"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -444,12 +618,16 @@ function ApplicationRow({
   dateLabel,
   isAdmin,
   navigate,
+  onOpenHistory,
+  onOpenMessage,
 }: {
   bid: Phase1Bid;
   displayName: string;
   dateLabel: string;
   isAdmin: boolean;
   navigate: ReturnType<typeof useNavigate>;
+  onOpenHistory: () => void;
+  onOpenMessage: (mode: "message" | "close") => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const aiAutoRespond = useAiAutoRespond();
@@ -504,6 +682,7 @@ function ApplicationRow({
               type="button"
               disabled={aiAutoRespond.isPending}
               title="AI simulates candidate response and auto-matches (Admin only)"
+              aria-label="AI auto-respond"
               onClick={(e) => {
                 e.stopPropagation();
                 aiAutoRespond.mutate(bid.id);
@@ -521,9 +700,43 @@ function ApplicationRow({
                 opacity: aiAutoRespond.isPending ? 0.7 : 1,
               }}
             >
-              {aiAutoRespond.isPending ? "⏳ Working…" : "🤖 AI Auto-respond"}
+              {aiAutoRespond.isPending ? "⏳" : "🤖"}
             </button>
           )}
+          <button
+            type="button"
+            title="History"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenHistory();
+            }}
+            style={{ background: "#fff", color: "#111", border: `1px solid ${BORDER}`, borderRadius: R_MD, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+          >
+            History
+          </button>
+          <button
+            type="button"
+            title="Send message"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenMessage("message");
+            }}
+            style={{ background: "#fff", color: NAVY, border: `1px solid ${BORDER}`, borderRadius: R_MD, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+          >
+            Message
+          </button>
+          <button
+            type="button"
+            title={bid.submission_status === "response_sent" ? "Already closed" : bid.decision_status === "pending" ? "Decision must be accepted or rejected" : "Close and send final response"}
+            disabled={bid.submission_status === "response_sent" || bid.decision_status === "pending"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenMessage("close");
+            }}
+            style={{ background: bid.submission_status === "response_sent" || bid.decision_status === "pending" ? "#e4e4e7" : "#1d4ed8", color: "#fff", border: "none", borderRadius: R_MD, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: bid.submission_status === "response_sent" || bid.decision_status === "pending" ? "not-allowed" : "pointer", whiteSpace: "nowrap", opacity: bid.submission_status === "response_sent" || bid.decision_status === "pending" ? 0.7 : 1 }}
+          >
+            Close
+          </button>
           <Link
             to={`/invitations/${bid.id}`}
             style={{ background: "#fff", color: "#111", border: `1px solid ${BORDER}`, borderRadius: R_MD, padding: "5px 12px", fontSize: 12, fontWeight: 500, textDecoration: "none", whiteSpace: "nowrap" }}

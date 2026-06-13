@@ -70,6 +70,26 @@ class Phase1BidResponseMessageUpdateRequest(BaseModel):
     response_message: str = Field(min_length=1)
 
 
+class Phase1BidSendMessageRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=255)
+    message: str = Field(min_length=1)
+
+
+class Phase1BidCloseRequest(BaseModel):
+    response_message: str | None = None
+
+
+class Phase1BidBulkNudgeRequest(BaseModel):
+    application_ids: list[UUID] = Field(min_length=1)
+
+
+class Phase1BidBulkNudgeResult(BaseModel):
+    requested_count: int
+    nudged_count: int
+    skipped_count: int
+    nudged_application_ids: list[UUID] = Field(default_factory=list)
+
+
 class Phase1BidUpdateRequest(BaseModel):
     """Admin-only: edit the candidate's submitted bid fields."""
     candidate_name: str | None = Field(default=None, max_length=255)
@@ -119,6 +139,19 @@ class Phase1BidResponse(BaseModel):
     updated_at: datetime
     job_title: str | None = None
     job_posted_at: datetime | None = None
+
+
+class Phase1BidHistoryEventResponse(BaseModel):
+    id: UUID
+    bid_id: UUID
+    case_id: UUID
+    tenant_id: UUID
+    category: str
+    event_type: str
+    title: str
+    detail: str | None
+    payload_json: dict | None
+    created_at: datetime
 
 
 class Phase1BidBulkDecisionResult(BaseModel):

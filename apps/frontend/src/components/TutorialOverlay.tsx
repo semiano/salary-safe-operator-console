@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 type TutorialOverlayProps = {
   open: boolean;
   onClose: () => void;
+  onDismissPermanently: () => void;
 };
 
 const TOPIC_CARDS = [
@@ -25,7 +26,7 @@ const TOPIC_CARDS = [
   },
 ];
 
-export function TutorialOverlay({ open, onClose }: TutorialOverlayProps) {
+export function TutorialOverlay({ open, onClose, onDismissPermanently }: TutorialOverlayProps) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -192,26 +193,44 @@ export function TutorialOverlay({ open, onClose }: TutorialOverlayProps) {
             }}
           >
             <div style={{ fontSize: 14, lineHeight: 1.6, color: "#475569", maxWidth: 640 }}>
-              You can close this panel any time. If you dismiss it, it will stay hidden for the rest of this browser session. Use the Help button near the bell to bring it back.
+              Use the <strong>Help</strong> button in the top bar to reopen this at any time.
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                borderRadius: 999,
-                border: "none",
-                background: "#0f172a",
-                color: "#fff",
-                padding: "10px 16px",
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: "pointer",
-                boxShadow: "0 10px 20px rgba(15,23,42,0.20)",
-              }}
-            >
-              Got it
-            </button>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={onDismissPermanently}
+                style={{
+                  borderRadius: 999,
+                  border: "1px solid rgba(15,23,42,0.18)",
+                  background: "transparent",
+                  color: "#475569",
+                  padding: "10px 16px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Don't show again
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  borderRadius: 999,
+                  border: "none",
+                  background: "#0f172a",
+                  color: "#fff",
+                  padding: "10px 16px",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  boxShadow: "0 10px 20px rgba(15,23,42,0.20)",
+                }}
+              >
+                Got it
+              </button>
+            </div>
           </div>
         </div>
       </div>

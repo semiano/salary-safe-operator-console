@@ -6,8 +6,11 @@ import { getTokenRole } from "../auth/token";
 import { useCases, useUpdateCaseGuidance, useUpdateCaseStatus } from "../hooks/useCases";
 import {
   useAiAutoRespondPhase1Bid,
+  useBidHistory,
+  useClosePhase1Bid,
   useBulkDecidePhase1Bids,
   usePhase1Bids,
+  useSendPhase1BidMessage,
   useSavePhase1BidResponseMessage,
   useSendPhase1BidResponse,
   useUpdatePhase1BidDecision,
@@ -76,6 +79,22 @@ function formatReceivedDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function buildDefaultCloseMessage(candidateName: string | null, decisionStatus: "pending" | "accepted" | "rejected"): string {
+  const greeting = `Hi ${candidateName || "there"},`;
+  if (decisionStatus === "accepted") {
+    return `${greeting}\n\nThank you for your submission. We are pleased to let you know your bid has been accepted.\n\nBest regards,\nSalarySafe Hiring Team`;
+  }
+  if (decisionStatus === "rejected") {
+    return `${greeting}\n\nThank you for your submission and interest. After review, we will not be moving forward with your bid at this time.\n\nBest regards,\nSalarySafe Hiring Team`;
+  }
+  return `${greeting}\n\nThank you for your submission. We are sharing an update on your bid.\n\nBest regards,\nSalarySafe Hiring Team`;
+}
+
+function buildDefaultMessageSubject(roleTitle: string | null, mode: "message" | "close"): string {
+  const role = roleTitle?.trim() || "this role";
+  return mode === "close" ? `Final update on your bid for ${role}` : `Update regarding your invitation for ${role}`;
 }
 
 function HeaderWithTooltip({ title, tooltip }: { title: string; tooltip: string }) {
@@ -230,6 +249,12 @@ export function CandidateBidsPage() {
   const [reviewBidId, setReviewBidId] = useState<string | null>(null);
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const [actionMenuPos, setActionMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [historyBidId, setHistoryBidId] = useState<string | null>(null);
+  const [messageBidId, setMessageBidId] = useState<string | null>(null);
+  const [messageMode, setMessageMode] = useState<"message" | "close">("message");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageBody, setMessageBody] = useState("");
+  const [messageError, setMessageError] = useState<string | null>(null);
 
   const isAdmin = getTokenRole() === "admin";
 
@@ -241,9 +266,12 @@ export function CandidateBidsPage() {
   const updateDecision = useUpdatePhase1BidDecision();
   const saveResponse = useSavePhase1BidResponseMessage();
   const sendResponse = useSendPhase1BidResponse();
+  const sendMessage = useSendPhase1BidMessage();
+  const closeBid = useClosePhase1Bid();
   const updateCaseGuidance = useUpdateCaseGuidance();
   const updateCaseStatus = useUpdateCaseStatus();
   const { data: bids, isLoading: bidsLoading } = usePhase1Bids(selectedCaseId);
+  const { data: historyEvents, isLoading: historyLoading } = useBidHistory(historyBidId);
 
   useEffect(() => {
     if (!selectedCaseId && cases && cases.length > 0) {
@@ -410,6 +438,8 @@ export function CandidateBidsPage() {
 
   const reviewBid = (bids ?? []).find((bid) => bid.id === reviewBidId) ?? null;
   const actionMenuBid = (bids ?? []).find((bid) => bid.id === openActionMenuId) ?? null;
+  const historyBid = (bids ?? []).find((bid) => bid.id === historyBidId) ?? null;
+  const messageBid = (bids ?? []).find((bid) => bid.id === messageBidId) ?? null;
   const rowPad = tableDensityCompact ? "py-2" : "py-3";
 
   useEffect(() => {
@@ -504,6 +534,49 @@ export function CandidateBidsPage() {
       }
     }
     await sendResponse.mutateAsync(bidId);
+  }
+
+  function openMessageDialog(bidId: string, mode: "message" | "close") {
+    const bid = (bids ?? []).find((entry) => entry.id === bidId);
+    if (!bid) return;
+
+    if (mode === "close" && bid.decision_status === "pending") {
+      window.alert("Cannot close while decision status is pending.");
+      return;
+    }
+
+    const roleTitle = selectedCaseMeta?.jobTitle ?? selectedCase?.title ?? bid.job_title;
+    setMessageBidId(bidId);
+    setMessageMode(mode);
+    setMessageSubject(buildDefaultMessageSubject(roleTitle, mode));
+    if (mode === "close") {
+      setMessageBody((responseEdits[bid.id] || bid.response_message || buildDefaultCloseMessage(bid.candidate_name, bid.decision_status)).trim());
+    } else {
+      setMessageBody(`Hi ${bid.candidate_name || "there"},\n\nWe wanted to share an update on your invitation.\n\nBest regards,\nSalarySafe Hiring Team`);
+    }
+    setMessageError(null);
+  }
+
+  async function handleSubmitMessageDialog() {
+    if (!messageBid) return;
+    const trimmedSubject = messageSubject.trim();
+    const trimmedBody = messageBody.trim();
+    if (!trimmedSubject || !trimmedBody) {
+      setMessageError("Subject and message are required.");
+      return;
+    }
+    if (messageMode === "close" && messageBid.decision_status === "pending") {
+      setMessageError("Cannot close while decision status is pending.");
+      return;
+    }
+
+    setMessageError(null);
+    if (messageMode === "message") {
+      await sendMessage.mutateAsync({ bidId: messageBid.id, subject: trimmedSubject, message: trimmedBody });
+    } else {
+      await closeBid.mutateAsync({ bidId: messageBid.id, response_message: trimmedBody });
+    }
+    setMessageBidId(null);
   }
 
   async function handleCloseBiddingAndSendAll() {
@@ -1113,6 +1186,19 @@ export function CandidateBidsPage() {
                       <div className="flex justify-end" onClick={(event) => event.stopPropagation()}>
                         <button
                           type="button"
+                          className="mr-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 text-ink hover:bg-ink/5"
+                          aria-label="History"
+                          title="History"
+                          onClick={() => setHistoryBidId(bid.id)}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                            <path d="M10 4v6l4 2" strokeLinecap="round" strokeLinejoin="round" />
+                            <path d="M3 10a7 7 0 1 0 2-4.9" strokeLinecap="round" />
+                            <path d="M3 4v3h3" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
                           className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-ink/15 text-ink hover:bg-ink/5"
                           aria-label="Actions"
                           title="Actions"
@@ -1228,6 +1314,26 @@ export function CandidateBidsPage() {
           >
             View
           </Link>
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-ink/5"
+            onClick={() => {
+              setOpenActionMenuId(null);
+              openMessageDialog(bid.id, "message");
+            }}
+          >
+            Send Message
+          </button>
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-ink/5"
+            onClick={() => {
+              setOpenActionMenuId(null);
+              setHistoryBidId(bid.id);
+            }}
+          >
+            View History
+          </button>
           {!isAwaiting && !isSent ? (
             <button
               type="button"
@@ -1255,14 +1361,28 @@ export function CandidateBidsPage() {
           >
             Reject
           </button>
+          <button
+            type="button"
+            className="block w-full px-3 py-2 text-left text-sm text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={isSent || bid.decision_status === "pending" || closeBid.isPending}
+            title={isSent ? "Already closed" : bid.decision_status === "pending" ? "Decision must be accepted or rejected" : ""}
+            onClick={() => {
+              setOpenActionMenuId(null);
+              openMessageDialog(bid.id, "close");
+            }}
+          >
+            Close
+          </button>
           {isAdmin && isAwaiting ? (
             <button
               type="button"
               className="block w-full px-3 py-2 text-left text-sm text-orange-600 hover:bg-orange-50 disabled:opacity-40"
               disabled={aiAutoRespond.isPending}
+              aria-label="AI auto-respond"
+              title="AI auto-respond"
               onClick={() => { setOpenActionMenuId(null); aiAutoRespond.mutate(bid.id); }}
             >
-              {aiAutoRespond.isPending ? "Working…" : "🤖 AI Auto-respond"}
+              🤖
             </button>
           ) : null}
         </div>
@@ -1356,6 +1476,92 @@ export function CandidateBidsPage() {
         </div>
       );
     })() : null}
+
+    {historyBid ? (
+      <div className="fixed inset-0 z-[70]" onClick={() => setHistoryBidId(null)}>
+        <div className="absolute inset-0 bg-black/30" />
+        <aside
+          className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-ink/10 bg-white p-5 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-display text-lg">Invitation History</h3>
+              <p className="text-xs text-slate">{historyBid.candidate_name ?? historyBid.applicant_identifier}</p>
+            </div>
+            <button type="button" className="rounded-full border border-ink/20 px-3 py-1 text-xs hover:bg-ink hover:text-paper" onClick={() => setHistoryBidId(null)}>
+              Close
+            </button>
+          </div>
+          {historyLoading ? (
+            <p className="text-sm text-slate">Loading history...</p>
+          ) : (historyEvents ?? []).length === 0 ? (
+            <p className="text-sm text-slate">No history found for this invitation yet.</p>
+          ) : (
+            <ol className="space-y-3">
+              {(historyEvents ?? []).map((event) => (
+                <li key={event.id} className="rounded-xl border border-ink/10 bg-white p-3">
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${event.category === "message" ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-700"}`}>
+                      {event.category}
+                    </span>
+                    <span className="text-xs text-slate">{new Date(event.created_at).toLocaleString()}</span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium text-ink">{event.title}</p>
+                  {event.detail ? <p className="mt-1 text-xs text-slate">{event.detail}</p> : null}
+                </li>
+              ))}
+            </ol>
+          )}
+        </aside>
+      </div>
+    ) : null}
+
+    {messageBid ? (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setMessageBidId(null)}>
+        <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-display text-lg">{messageMode === "close" ? "Close Invitation" : "Send Message"}</h3>
+              <p className="text-xs text-slate">{messageBid.candidate_name ?? messageBid.applicant_identifier}</p>
+            </div>
+            <button type="button" className="rounded-full border border-ink/20 px-3 py-1 text-xs hover:bg-ink hover:text-paper" onClick={() => setMessageBidId(null)}>
+              Cancel
+            </button>
+          </div>
+
+          <label className="mb-1 block text-xs font-medium">Subject</label>
+          <input
+            className="mb-3 w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
+            value={messageSubject}
+            onChange={(event) => setMessageSubject(event.target.value)}
+          />
+
+          <label className="mb-1 block text-xs font-medium">Message</label>
+          <textarea
+            className="min-h-40 w-full rounded-lg border border-ink/20 px-3 py-2 text-sm"
+            value={messageBody}
+            onChange={(event) => setMessageBody(event.target.value)}
+          />
+
+          {messageError ? <p className="mt-2 text-xs text-red-700">{messageError}</p> : null}
+
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" className="rounded-full border border-ink/20 px-4 py-2 text-sm" onClick={() => setMessageBidId(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-full bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              disabled={sendMessage.isPending || closeBid.isPending}
+              onClick={handleSubmitMessageDialog}
+            >
+              {sendMessage.isPending || closeBid.isPending ? "Sending..." : messageMode === "close" ? "Close and Send" : "Send Message"}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null}
 
     {showCloseBiddingConfirm && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

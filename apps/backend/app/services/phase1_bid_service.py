@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.case import NegotiationCase, Phase1Bid
+from app.models.case import NegotiationCase, Phase1Bid, Phase1BidEvent
 
 SUBMISSION_STATUS_SUBMITTED = "applicant_bid_submitted"
 SUBMISSION_STATUS_SENT = "response_sent"
@@ -63,6 +63,14 @@ class Phase1BidService:
         )
         return list(self.db.scalars(stmt).all())
 
+    def list_history(self, bid_id: UUID) -> list[Phase1BidEvent]:
+        stmt = (
+            select(Phase1BidEvent)
+            .where(Phase1BidEvent.bid_id == bid_id)
+            .order_by(Phase1BidEvent.created_at.desc())
+        )
+        return list(self.db.scalars(stmt).all())
+
     def get_bid(self, bid_id: UUID) -> Phase1Bid | None:
         return self.db.get(Phase1Bid, bid_id)
 
@@ -93,6 +101,13 @@ class Phase1BidService:
             received_at=datetime.now(timezone.utc),
         )
         self.db.add(bid)
+        self._append_event(
+            bid,
+            category="status",
+            event_type="bid_created",
+            title="Bid created",
+            detail="Bid was created directly by an operator.",
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
@@ -132,13 +147,44 @@ class Phase1BidService:
         else:
             bid.response_message = self.default_response_message(bid, decision_status, decision_reason)
 
+        changed = previous_status != decision_status
+        self._append_event(
+            bid,
+            category="status",
+            event_type="decision_updated",
+            title="Decision updated" if changed else "Decision reviewed",
+            detail=(
+                f"Decision changed from {previous_status} to {decision_status}."
+                if changed
+                else f"Decision remained {decision_status}."
+            ),
+            payload={
+                "previous_decision_status": previous_status,
+                "decision_status": decision_status,
+                "decision_reason": decision_reason,
+                "match_score": bid.match_score,
+            },
+        )
+
         self.db.commit()
         self.db.refresh(bid)
         return bid
 
     def update_response_message(self, *, bid: Phase1Bid, response_message: str) -> Phase1Bid:
         self._ensure_not_sent(bid)
+        previous_message = bid.response_message
         bid.response_message = response_message.strip()
+        self._append_event(
+            bid,
+            category="message",
+            event_type="response_message_updated",
+            title="Response message updated",
+            detail="Final response draft was edited.",
+            payload={
+                "previous_length": len(previous_message or ""),
+                "current_length": len(bid.response_message or ""),
+            },
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
@@ -169,6 +215,20 @@ class Phase1BidService:
         if bid.submission_status == SUBMISSION_STATUS_INVITATION_PENDING:
             bid.submission_status = SUBMISSION_STATUS_SUBMITTED
             bid.candidate_submitted_at = datetime.now(timezone.utc)
+            self._append_event(
+                bid,
+                category="status",
+                event_type="candidate_submission_recorded",
+                title="Candidate submission recorded",
+                detail="Bid moved from invitation pending to submitted.",
+            )
+        self._append_event(
+            bid,
+            category="status",
+            event_type="bid_fields_updated",
+            title="Bid fields updated",
+            detail="An operator edited candidate bid fields.",
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
@@ -183,6 +243,14 @@ class Phase1BidService:
 
         bid.submission_status = SUBMISSION_STATUS_SENT
         bid.sent_at = datetime.now(timezone.utc)
+        self._append_event(
+            bid,
+            category="status",
+            event_type="bid_closed",
+            title="Bid closed",
+            detail=f"Final response sent with decision {bid.decision_status}.",
+            payload={"decision_status": bid.decision_status},
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
@@ -215,6 +283,19 @@ class Phase1BidService:
             bid.match_score = match_score
             bid.decision_reason = decision_reason
             bid.response_message = response_message or self.default_response_message(bid, decision_status, decision_reason)
+            self._append_event(
+                bid,
+                category="status",
+                event_type="decision_updated",
+                title="Decision updated",
+                detail=f"Decision set to {decision_status} by bulk AI matching.",
+                payload={
+                    "decision_status": decision_status,
+                    "decision_reason": decision_reason,
+                    "match_score": match_score,
+                    "source": "bulk_llm",
+                },
+            )
             updated_ids.append(bid.id)
 
         if updated_ids:
@@ -427,6 +508,13 @@ class Phase1BidService:
             candidate_submitted_at=datetime.now(timezone.utc),
         )
         self.db.add(bid)
+        self._append_event(
+            bid,
+            category="status",
+            event_type="simulated_submission_created",
+            title="Simulated submission created",
+            detail="An admin created a simulated candidate bid.",
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
@@ -460,6 +548,17 @@ class Phase1BidService:
             received_at=datetime.now(timezone.utc),
         )
         self.db.add(bid)
+        self._append_event(
+            bid,
+            category="status",
+            event_type="invitation_created",
+            title="Invitation created",
+            detail="Invitation sent to candidate.",
+            payload={
+                "candidate_email": candidate_email,
+                "candidate_name": candidate_name,
+            },
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
@@ -475,6 +574,13 @@ class Phase1BidService:
         bid.invitation_code = _generate_invitation_code()
         bid.submission_status = SUBMISSION_STATUS_INVITATION_PENDING
         bid.received_at = datetime.now(timezone.utc)
+        self._append_event(
+            bid,
+            category="status",
+            event_type="invitation_resent",
+            title="Invitation re-sent",
+            detail="A new invitation code was issued to the candidate.",
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
@@ -507,9 +613,66 @@ class Phase1BidService:
         bid.wfh_importance_rank = wfh_importance_rank
         bid.submission_status = SUBMISSION_STATUS_SUBMITTED
         bid.candidate_submitted_at = datetime.now(timezone.utc)
+        self._append_event(
+            bid,
+            category="status",
+            event_type="candidate_submitted_bid",
+            title="Candidate submitted bid",
+            detail="Candidate completed invitation and submitted salary expectations.",
+            payload={
+                "salary_min": bid.salary_min,
+                "salary_max": bid.salary_max,
+                "insurance_importance_rank": bid.insurance_importance_rank,
+                "pto_importance_rank": bid.pto_importance_rank,
+                "wfh_importance_rank": bid.wfh_importance_rank,
+            },
+        )
         self.db.commit()
         self.db.refresh(bid)
         return bid
+
+    def log_message_event(
+        self,
+        *,
+        bid: Phase1Bid,
+        event_type: str,
+        title: str,
+        detail: str,
+        payload: dict | None = None,
+    ) -> None:
+        self._append_event(
+            bid,
+            category="message",
+            event_type=event_type,
+            title=title,
+            detail=detail,
+            payload=payload,
+        )
+        self.db.commit()
+
+    def _append_event(
+        self,
+        bid: Phase1Bid,
+        *,
+        category: str,
+        event_type: str,
+        title: str,
+        detail: str | None,
+        payload: dict | None = None,
+    ) -> None:
+        # Attach via relationship so SQLAlchemy can resolve bid_id even for new, unflushed bids.
+        self.db.add(
+            Phase1BidEvent(
+                bid=bid,
+                case_id=bid.case_id,
+                tenant_id=bid.tenant_id,
+                category=category,
+                event_type=event_type,
+                title=title,
+                detail=detail,
+                payload_json=payload,
+            )
+        )
 
     def get_bid_stats_for_cases(self, case_ids: list[UUID]) -> dict[str, dict]:
         """Return {case_id_str: {invitations_sent, bids_received}} for each requested case."""

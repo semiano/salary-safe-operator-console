@@ -304,6 +304,15 @@ export function PostRolePage() {
   // Salary (extended)
   const [bonusTargetPct, setBonusTargetPct] = useState("");
 
+  const salaryBandTargetText = useMemo(() => {
+    const floor = Number(budgetFloorText.replace(/[$,\s]/g, ""));
+    const ceiling = Number(budgetCeilingText.replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(floor) || !Number.isFinite(ceiling) || floor <= 0 || ceiling <= floor) {
+      return "";
+    }
+    return Math.round((floor + ceiling) / 2).toLocaleString();
+  }, [budgetFloorText, budgetCeilingText]);
+
   // Benefit sub-options
   const [healthPlan, setHealthPlan] = useState<"basic" | "standard" | "premium">("standard");
   const [retirementMatchPct, setRetirementMatchPct] = useState("4");
@@ -955,8 +964,107 @@ export function PostRolePage() {
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <polyline points="4,2 8,6 4,10" stroke={FAINT} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span style={{ fontSize: 13, color: "#111", fontWeight: 500 }}>{isEditMode ? "Edit Job Listing" : "Post a New Job Listing"}</span>
+        <span style={{ fontSize: 13, color: "#111", fontWeight: 500 }}>{isEditMode ? "Edit Job Listing" : "Post Job Listing (New)"}</span>
       </div>
+
+      {/* ── Persistent listing info + cancel panel (edit / saved mode) ── */}
+      {recordExists && (
+        <div
+          style={{
+            background: "#fff",
+            border: `1px solid ${isCancelled ? "#fecaca" : BORDER}`,
+            borderLeft: `4px solid ${isCancelled ? "#dc2626" : B}`,
+            borderRadius: R_LG,
+            padding: "14px 18px",
+            marginBottom: "1.5rem",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 16,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap", minWidth: 0 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Listing</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 280 }}>
+                {jobTitle || listingSummary?.title || "Untitled listing"}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Status</div>
+              <span
+                style={{
+                  display: "inline-block",
+                  marginTop: 2,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "2px 10px",
+                  borderRadius: 99,
+                  background: isCancelled ? "#fee2e2" : BL,
+                  color: isCancelled ? "#b91c1c" : BT,
+                }}
+              >
+                {isCancelled ? "Cancelled" : "Active"}
+              </span>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Created</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginTop: 2 }}>
+                {listingCreatedAt
+                  ? new Date(listingCreatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                  : "—"}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Invitations</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginTop: 2 }}>{existingBids.length}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <MatchingInfoPopover />
+            {isCancelled ? (
+              <button
+                type="button"
+                onClick={handleUncancel}
+                disabled={setListingStatus.isPending}
+                style={{
+                  padding: "9px 16px",
+                  background: BL,
+                  border: `1px solid ${BB}`,
+                  borderRadius: R_MD,
+                  color: BT,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: setListingStatus.isPending ? "not-allowed" : "pointer",
+                  opacity: setListingStatus.isPending ? 0.6 : 1,
+                  fontFamily: "inherit",
+                }}
+              >
+                {setListingStatus.isPending ? "Restoring…" : "Un-cancel listing"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setCancelConfirmText(""); setShowCancelModal(true); }}
+                style={{
+                  padding: "9px 16px",
+                  background: "#fff",
+                  border: "1px solid #fca5a5",
+                  borderRadius: R_MD,
+                  color: "#dc2626",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Cancel job listing
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Phase explanation header (blue / purple) ── */}
       <section
@@ -1134,105 +1242,6 @@ export function PostRolePage() {
           </div>
         </div>
       </section>
-
-      {/* ── Persistent listing info + cancel panel (edit / saved mode) ── */}
-      {recordExists && (
-        <div
-          style={{
-            background: "#fff",
-            border: `1px solid ${isCancelled ? "#fecaca" : BORDER}`,
-            borderLeft: `4px solid ${isCancelled ? "#dc2626" : B}`,
-            borderRadius: R_LG,
-            padding: "14px 18px",
-            marginBottom: "1.5rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap", minWidth: 0 }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Listing</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#111", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 280 }}>
-                {jobTitle || listingSummary?.title || "Untitled listing"}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Status</div>
-              <span
-                style={{
-                  display: "inline-block",
-                  marginTop: 2,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: "2px 10px",
-                  borderRadius: 99,
-                  background: isCancelled ? "#fee2e2" : BL,
-                  color: isCancelled ? "#b91c1c" : BT,
-                }}
-              >
-                {isCancelled ? "Cancelled" : "Active"}
-              </span>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Created</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginTop: 2 }}>
-                {listingCreatedAt
-                  ? new Date(listingCreatedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                  : "—"}
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 11, color: FAINT, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>Invitations</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginTop: 2 }}>{existingBids.length}</div>
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <MatchingInfoPopover />
-            {isCancelled ? (
-              <button
-                type="button"
-                onClick={handleUncancel}
-                disabled={setListingStatus.isPending}
-                style={{
-                  padding: "9px 16px",
-                  background: BL,
-                  border: `1px solid ${BB}`,
-                  borderRadius: R_MD,
-                  color: BT,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: setListingStatus.isPending ? "not-allowed" : "pointer",
-                  opacity: setListingStatus.isPending ? 0.6 : 1,
-                  fontFamily: "inherit",
-                }}
-              >
-                {setListingStatus.isPending ? "Restoring…" : "Un-cancel listing"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => { setCancelConfirmText(""); setShowCancelModal(true); }}
-                style={{
-                  padding: "9px 16px",
-                  background: "#fff",
-                  border: "1px solid #fca5a5",
-                  borderRadius: R_MD,
-                  color: "#dc2626",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                }}
-              >
-                Cancel job listing
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ── Cancel confirmation modal (heavy confirmation) ── */}
       {showCancelModal && (
@@ -1560,49 +1569,63 @@ export function PostRolePage() {
             {/* ── Salary Band ── */}
             <div
               style={{
-                background: "#fff",
-                border: `0.5px solid ${BORDER}`,
+                background: "#f5f7fb",
+                border: "1px solid #d4d9e5",
                 borderRadius: R_LG,
                 padding: "1.5rem",
+                boxShadow: "0 4px 14px rgba(16, 24, 40, 0.06)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: ".625rem", gap: 12 }}>
-                <SectionLabel>Salary Band</SectionLabel>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: ".5rem", gap: 12 }}>
+                <div>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: ".12em",
+                      color: "#2f3650",
+                      margin: 0,
+                    }}
+                  >
+                    Confidential Salary Band
+                  </p>
+                </div>
                 <span
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 5,
-                    fontSize: 11,
+                    gap: 6,
+                    fontSize: 12,
                     fontWeight: 500,
-                    color: BT,
-                    background: BL,
-                    border: `1px solid ${BB}`,
+                    color: "#2f3650",
+                    background: "#ffffff",
+                    border: "1px solid #cfd5e3",
                     borderRadius: 99,
-                    padding: "3px 10px",
+                    padding: "4px 10px",
                   }}
                 >
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <rect x="1" y="4.5" width="8" height="5" rx="1" stroke={B} strokeWidth="1.2" />
-                    <path d="M3 4.5V3a2 2 0 0 1 4 0v1.5" stroke={B} strokeWidth="1.2" strokeLinecap="round" />
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <rect x="1.5" y="5" width="9" height="5.5" rx="1.2" stroke="#4a5572" strokeWidth="1.2" />
+                    <path d="M3.5 5V3.7a2.5 2.5 0 0 1 5 0V5" stroke="#4a5572" strokeWidth="1.2" strokeLinecap="round" />
                   </svg>
-                  Not shown to candidates
+                  Only you see this
                 </span>
               </div>
 
-              <p style={{ fontSize: 13, color: MUTED, lineHeight: 1.6, marginBottom: "1rem" }}>
-                Your salary range is kept strictly confidential. Candidates never see your budget — only
-                whether their expectations align with it.
+              <p style={{ fontSize: 13, color: "#4f5772", lineHeight: 1.6, marginBottom: "1rem" }}>
+                Set your band, then benchmark it below. Candidates see a directional fit label, never the
+                figures.
               </p>
 
-              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr", gap: 14, alignItems: "end" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 280px) 1fr", gap: 14, alignItems: "end", marginBottom: 14 }}>
                 <div>
                   <FieldLabel htmlFor="currency">Currency</FieldLabel>
                   <select
                     id="currency"
                     value={currency}
                     onChange={(e) => setCurrency(e.target.value)}
-                    style={inputStyle({ width: "auto", appearance: "auto" } as React.CSSProperties)}
+                    style={inputStyle({ width: "100%", appearance: "auto", background: "#f7f8fc", borderColor: "#cfd5e3" } as React.CSSProperties)}
                   >
                     <option value="USD">USD $</option>
                     <option value="GBP">GBP £</option>
@@ -1615,6 +1638,9 @@ export function PostRolePage() {
                     <option value="INR">INR ₹</option>
                   </select>
                 </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(170px, 1fr))", gap: 14, alignItems: "end" }}>
                 <div>
                   <FieldLabel htmlFor="budgetFloor">Minimum <span style={{ color: "red" }}>*</span></FieldLabel>
                   <input
@@ -1624,7 +1650,19 @@ export function PostRolePage() {
                     value={budgetFloorText}
                     onChange={(e) => setBudgetFloorText(e.target.value)}
                     placeholder="120,000"
-                    style={inputStyle()}
+                    style={inputStyle({ background: "#f7f8fc", borderColor: "#cfd5e3" })}
+                  />
+                </div>
+                <div>
+                  <FieldLabel htmlFor="budgetTarget">Target</FieldLabel>
+                  <input
+                    id="budgetTarget"
+                    type="text"
+                    value={salaryBandTargetText ? `$ ${salaryBandTargetText}` : ""}
+                    placeholder="$ 142,000"
+                    readOnly
+                    aria-readonly="true"
+                    style={inputStyle({ background: "#eef1f8", borderColor: "#cfd5e3", color: "#2f3650" })}
                   />
                 </div>
                 <div>
@@ -1636,7 +1674,7 @@ export function PostRolePage() {
                     value={budgetCeilingText}
                     onChange={(e) => setBudgetCeilingText(e.target.value)}
                     placeholder="155,000"
-                    style={inputStyle()}
+                    style={inputStyle({ background: "#f7f8fc", borderColor: "#cfd5e3" })}
                   />
                 </div>
               </div>

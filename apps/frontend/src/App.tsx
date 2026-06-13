@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 
-import { clearAccessToken, getTokenRole, isAuthenticated } from "./auth/token";
+import { clearAccessToken, getTokenEmail, getTokenRole, isAuthenticated } from "./auth/token";
 import { AccountMenu } from "./components/AccountMenu";
 import { ActionQueueBell } from "./components/ActionQueueBell";
 import { DebugLogDock } from "./components/DebugLogDock";
@@ -19,6 +19,7 @@ import { BidEditPage } from "./pages/BidEditPage";
 import { CandidateBidsPage } from "./pages/CorporatePortalPage";
 import { CompBenchmarkWorkspacePage } from "./pages/CompBenchmarkWorkspacePage";
 import { CorporateHomePage } from "./pages/CorporateHomePage";
+import { GlobalSettingsPage } from "./pages/GlobalSettingsPage";
 import { PostRolePage } from "./pages/PostRolePage";
 import { RunConfigsPage } from "./pages/RunConfigsPage";
 import { RunComparePage } from "./pages/RunComparePage";
@@ -72,6 +73,12 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 
 const TUTORIAL_DISMISSED_KEY = "salarysafe_tutorial_dismissed";
 
+function getTutorialKey(): string {
+  // Per-user key so different logins on the same browser get their own preference.
+  const email = getTokenEmail();
+  return email ? `${TUTORIAL_DISMISSED_KEY}_${email}` : TUTORIAL_DISMISSED_KEY;
+}
+
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -82,7 +89,7 @@ export function App() {
     if (typeof window === "undefined") {
       return true;
     }
-    return sessionStorage.getItem(TUTORIAL_DISMISSED_KEY) === "1";
+    return localStorage.getItem(getTutorialKey()) === "1";
   });
   const { style, setStyle } = useTheme();
   const showAdminDebugDock = isAuthenticated() && getTokenRole() === "admin";
@@ -341,6 +348,7 @@ export function App() {
                     { label: "Cases", to: "/cases", icon: "🗂️" },
                     { label: "Agents", to: "/agents", icon: "🤖" },
                     { label: "Run Configs", to: "/configs", icon: "⚙️" },
+                    { label: "Global Settings", to: "/global-settings", icon: "🌐" },
                   ].map(({ label, to, icon }) => (
                     <Link
                       key={to}
@@ -490,6 +498,14 @@ export function App() {
               </RequireAuth>
             }
           />
+          <Route
+            path="/global-settings"
+            element={
+              <RequireAuth>
+                <GlobalSettingsPage />
+              </RequireAuth>
+            }
+          />
 
           {/* ── Run routes ── */}
           <Route
@@ -533,7 +549,10 @@ export function App() {
       <TutorialOverlay
         open={tutorialOpen}
         onClose={() => {
-          sessionStorage.setItem(TUTORIAL_DISMISSED_KEY, "1");
+          setTutorialOpen(false);
+        }}
+        onDismissPermanently={() => {
+          localStorage.setItem(getTutorialKey(), "1");
           setTutorialDismissed(true);
           setTutorialOpen(false);
         }}

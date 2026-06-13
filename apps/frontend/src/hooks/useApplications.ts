@@ -3,6 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPut } from "../api/client";
 import type { Phase1Bid } from "../types/api";
 
+type BulkNudgeResult = {
+  requested_count: number;
+  nudged_count: number;
+  skipped_count: number;
+  nudged_application_ids: string[];
+};
+
 // ── Query all applications (global list) ──────────────────────────────────────
 export function useAllApplications() {
   return useQuery({
@@ -99,6 +106,19 @@ export function useAiAutoRespond() {
       queryClient.invalidateQueries({ queryKey: ["applications"] });
       queryClient.invalidateQueries({ queryKey: ["listing-applications", updated.case_id] });
       queryClient.invalidateQueries({ queryKey: ["phase1-bid-detail", updated.id] });
+    },
+  });
+}
+
+export function useNudgeAwaitingApplications() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (applicationIds: string[]) =>
+      apiPost<BulkNudgeResult>("/applications/nudge-awaiting", {
+        application_ids: applicationIds,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["applications"] });
     },
   });
 }

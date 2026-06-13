@@ -106,9 +106,26 @@ export type Phase1Bid = {
   job_posted_at: string | null;
 };
 
+export type Phase1BidHistoryEvent = {
+  id: string;
+  bid_id: string;
+  case_id: string;
+  tenant_id: string;
+  category: string;
+  event_type: string;
+  title: string;
+  detail: string | null;
+  payload_json: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type BidStats = {
   invitations_sent: number;
   bids_received: number;
+};
+
+export type GlobalSettings = {
+  auto_accept_match_threshold: number;
 };
 
 export type PublicBidLookup = {
