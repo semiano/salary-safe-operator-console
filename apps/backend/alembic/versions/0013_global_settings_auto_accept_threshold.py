@@ -28,7 +28,8 @@ def upgrade() -> None:
     )
     op.create_index("ix_global_settings_setting_key", "global_settings", ["setting_key"], unique=True)
 
-    op.execute(
+    bind = op.get_bind()
+    bind.execute(
         sa.text(
             "INSERT INTO global_settings (id, setting_key, value_json) "
             "VALUES (:id, :setting_key, CAST(:value_json AS jsonb))"
