@@ -86,6 +86,13 @@ function formatDateTime(iso: string | null | undefined): string {
   return dt.toLocaleString();
 }
 
+function formatMatchScore(value: number | null | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const clamped = Math.max(0, Math.min(100, value));
+  const rounded = Math.round(clamped * 10) / 10;
+  return Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
+}
+
 function buildDefaultMessageSubject(roleTitle: string | null, mode: "message" | "close"): string {
   const role = roleTitle?.trim() || "this role";
   return mode === "close" ? `Final update on your bid for ${role}` : `Update regarding your invitation for ${role}`;
@@ -472,6 +479,9 @@ export function AllApplicationsPage() {
                 Decision
                 <LegendPopover title="Hiring Decision" items={DECISION_LEGEND} />
               </th>
+              <th style={{ padding: "0.6rem 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+                Match Score
+              </th>
               <th style={{ padding: "0.6rem 12px", textAlign: "right", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Invitation Date</th>
               <th style={{ padding: "0.6rem 1.25rem", textAlign: "right", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Actions</th>
             </tr>
@@ -479,13 +489,13 @@ export function AllApplicationsPage() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} style={{ padding: "3rem", textAlign: "center", color: MUTED, fontSize: 14 }}>Loading applications…</td>
+                <td colSpan={7} style={{ padding: "3rem", textAlign: "center", color: MUTED, fontSize: 14 }}>Loading applications…</td>
               </tr>
             )}
 
             {!isLoading && total === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: "3rem", textAlign: "center" }}>
+                <td colSpan={7} style={{ padding: "3rem", textAlign: "center" }}>
                   <div style={{ width: 48, height: 48, borderRadius: "50%", background: BL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
                     <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
                       <rect x="3" y="5" width="16" height="13" rx="2" stroke={BT} strokeWidth="1.5" />
@@ -501,7 +511,7 @@ export function AllApplicationsPage() {
 
             {!isLoading && total > 0 && visibleBids.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: "2.5rem", textAlign: "center", color: MUTED, fontSize: 14 }}>
+                <td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: MUTED, fontSize: 14 }}>
                   No applications match the current filters.{" "}
                   <button type="button" onClick={clearFilters} style={{ color: BT, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 500 }}>
                     Clear filters
@@ -631,6 +641,8 @@ function ApplicationRow({
 }) {
   const [hovered, setHovered] = useState(false);
   const aiAutoRespond = useAiAutoRespond();
+  const hasScore = typeof bid.match_score === "number" && Number.isFinite(bid.match_score);
+  const isAwaiting = bid.submission_status === "invitation_pending";
 
   return (
     <tr
@@ -667,6 +679,45 @@ function ApplicationRow({
       {/* Decision */}
       <td style={{ padding: "0 12px", whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
         <DecisionBadge status={bid.decision_status} />
+      </td>
+
+      {/* Match score */}
+      <td style={{ padding: "0 12px", whiteSpace: "nowrap" }}>
+        {isAwaiting || !hasScore ? (
+          <span
+            style={{
+              display: "flex",
+              width: 48,
+              height: 48,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "50%",
+              border: "1px dashed rgba(11,15,25,0.2)",
+              fontSize: 12,
+              color: MUTED,
+            }}
+          >
+            —
+          </span>
+        ) : (
+          <span
+            style={{
+              display: "flex",
+              width: 48,
+              height: 48,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "50%",
+              background: "#ecfdf5",
+              color: "#047857",
+              fontSize: 14,
+              fontWeight: 600,
+              boxShadow: "inset 0 0 0 1px #d1fae5",
+            }}
+          >
+            {formatMatchScore(bid.match_score)}
+          </span>
+        )}
       </td>
 
       {/* Date received */}
