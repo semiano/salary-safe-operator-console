@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { getTokenEmail, getTokenName, getTokenRole } from "../auth/token";
-import type { StyleTheme } from "../hooks/useTheme";
-import { StylePicker } from "./StylePicker";
 
 interface AccountMenuProps {
   onLogout: () => void;
-  style: StyleTheme;
-  onSetStyle: (s: StyleTheme) => void;
 }
 
 const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
-  admin: { bg: "rgba(217,108,45,0.15)", text: "#b45309" },
-  operator: { bg: "rgba(59,130,246,0.12)", text: "#1d4ed8" },
-  viewer: { bg: "rgba(100,116,139,0.12)", text: "#475569" },
+  admin: { bg: "var(--ss-admin-orange-bg)", text: "var(--ss-admin-orange)" },
+  operator: { bg: "var(--ss-match-bg)", text: "var(--ss-accent-dark)" },
+  viewer: { bg: "rgb(var(--ss-ink-rgb) / 0.08)", text: "var(--ss-muted)" },
 };
 
-export function AccountMenu({ onLogout, style, onSetStyle }: AccountMenuProps) {
+export function AccountMenu({ onLogout }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -78,7 +74,7 @@ export function AccountMenu({ onLogout, style, onSetStyle }: AccountMenuProps) {
             width: 28,
             height: 28,
             borderRadius: "50%",
-            background: "linear-gradient(135deg, #d96c2d 0%, #1B1035 100%)",
+            background: "linear-gradient(135deg, var(--ss-accent) 0%, var(--ss-ink) 100%)",
             color: "#fff",
             fontSize: 11,
             fontWeight: 700,
@@ -118,7 +114,7 @@ export function AccountMenu({ onLogout, style, onSetStyle }: AccountMenuProps) {
             background: "var(--ss-surface, #fff)",
             border: "1px solid var(--ss-border, rgba(0,0,0,0.12))",
             borderRadius: 10,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            boxShadow: "var(--ss-shadow)",
             zIndex: 200,
             overflow: "hidden",
           }}
@@ -138,7 +134,7 @@ export function AccountMenu({ onLogout, style, onSetStyle }: AccountMenuProps) {
                 width: 36,
                 height: 36,
                 borderRadius: "50%",
-                background: "linear-gradient(135deg, #d96c2d 0%, #1B1035 100%)",
+                background: "linear-gradient(135deg, var(--ss-accent) 0%, var(--ss-ink) 100%)",
                 color: "#fff",
                 fontSize: 14,
                 fontWeight: 700,
@@ -193,11 +189,6 @@ export function AccountMenu({ onLogout, style, onSetStyle }: AccountMenuProps) {
                 {role}
               </span>
             </div>
-          </div>
-
-          {/* Style picker */}
-          <div style={{ borderBottom: "1px solid var(--ss-border, rgba(0,0,0,0.08))" }}>
-            <StylePicker current={style} onChange={onSetStyle} />
           </div>
 
           {/* Sign out */}

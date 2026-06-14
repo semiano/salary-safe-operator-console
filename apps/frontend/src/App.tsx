@@ -91,7 +91,7 @@ export function App() {
     }
     return localStorage.getItem(getTutorialKey()) === "1";
   });
-  const { style, setStyle } = useTheme();
+  const { mode, toggleMode } = useTheme();
   const showAdminDebugDock = isAuthenticated() && getTokenRole() === "admin";
   const shouldShowTutorial = isAuthenticated() && !location.pathname.startsWith("/login");
 
@@ -159,8 +159,8 @@ export function App() {
   return (
     <div className="min-h-screen bg-paper text-ink" style={{ paddingBottom: showAdminDebugDock ? 230 : 0 }}>
       <header
-        className="sticky top-0 z-30 border-b border-ink/15 bg-white/95 backdrop-blur-sm"
-        style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}
+        className="sticky top-0 z-30 border-b border-ink/15 bg-white/80 backdrop-blur-sm"
+        style={{ boxShadow: "0 1px 4px rgb(var(--ss-ink-rgb) / 0.08)" }}
       >
         <div
           className="mx-auto max-w-6xl px-6"
@@ -169,7 +169,7 @@ export function App() {
           {/* ── Zone 1: Brand ─────────────────────────────────────────────── */}
           <div>
             <h1 className="font-display text-xl font-semibold tracking-tight leading-none">SalarySafe</h1>
-            <p className="text-xs text-slate leading-tight mt-0.5">Operator console for multi-agent salary negotiation runs</p>
+            <p className="text-xs text-slate leading-tight mt-0.5">Private salary matching. Confidential fit, not figures.</p>
           </div>
 
           {/* ── Zone 2: Primary navigation ────────────────────────────────── */}
@@ -278,8 +278,8 @@ export function App() {
                 height: 34,
                 borderRadius: "50%",
                 background: "transparent",
-                border: "1px solid rgba(0,0,0,0.13)",
-                color: "rgba(0,0,0,0.44)",
+                border: "1px solid rgb(var(--ss-ink-rgb) / 0.18)",
+                color: "rgb(var(--ss-ink-rgb) / 0.58)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -287,7 +287,7 @@ export function App() {
                 transition: "background 0.15s, border-color 0.15s",
                 flexShrink: 0,
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.05)"; }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgb(var(--ss-ink-rgb) / 0.06)"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
             >
               <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -295,6 +295,40 @@ export function App() {
                 <path d="M7.2 6.7a2.1 2.1 0 1 1 3.7 1.35c-.7.82-1.7 1.07-1.7 2.45" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 <circle cx="9" cy="9" r="7" stroke="currentColor" strokeWidth="1.4" />
               </svg>
+            </button>
+            {/* Light/dark mode toggle */}
+            <button
+              type="button"
+              aria-label={`Switch to ${mode === "light" ? "dark" : "light"} mode`}
+              title={`Switch to ${mode === "light" ? "dark" : "light"} mode`}
+              onClick={toggleMode}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                background: "transparent",
+                border: "1px solid rgb(var(--ss-ink-rgb) / 0.18)",
+                color: "rgb(var(--ss-ink-rgb) / 0.58)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                transition: "background 0.15s, border-color 0.15s",
+                flexShrink: 0,
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgb(var(--ss-ink-rgb) / 0.06)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            >
+              {mode === "light" ? (
+                <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M9 3v1.5M9 13.5V15M4.76 4.76l1.06 1.06M12.18 12.18l1.06 1.06M3 9h1.5M13.5 9H15M4.76 13.24l1.06-1.06M12.18 5.82l1.06-1.06" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <circle cx="9" cy="9" r="2.8" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="M12.9 11.1A5.7 5.7 0 0 1 6.9 3.1a6.2 6.2 0 1 0 8 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
             </button>
             {/* Under Construction icon button */}
             <div style={{ position: "relative" }}>
@@ -308,8 +342,8 @@ export function App() {
                   height: 34,
                   borderRadius: "50%",
                   background: "transparent",
-                  border: "1px solid rgba(0,0,0,0.13)",
-                  color: "rgba(0,0,0,0.40)",
+                  border: "1px solid rgb(var(--ss-ink-rgb) / 0.18)",
+                  color: "rgb(var(--ss-ink-rgb) / 0.56)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -317,7 +351,7 @@ export function App() {
                   transition: "background 0.15s, border-color 0.15s",
                   flexShrink: 0,
                 }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(0,0,0,0.05)"; }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgb(var(--ss-ink-rgb) / 0.06)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
               >
                 <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -367,8 +401,6 @@ export function App() {
             {/* User account menu */}
             <AccountMenu
               onLogout={onLogout}
-              style={style}
-              onSetStyle={setStyle}
             />
           </div>
         </div>

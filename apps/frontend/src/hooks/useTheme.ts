@@ -1,35 +1,41 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type StyleTheme = "default" | "midnight" | "enterprise" | "warm" | "vivid";
+export type ThemeMode = "light" | "dark";
 
-const STYLE_KEY = "salarysafe_style";
+const MODE_KEY = "salarysafe_mode";
 
-function applyStyle(style: StyleTheme) {
-  if (style === "default") {
-    document.documentElement.removeAttribute("data-theme");
-  } else {
-    document.documentElement.setAttribute("data-theme", style);
-  }
+function applyMode(mode: ThemeMode) {
+  document.documentElement.setAttribute("data-mode", mode);
 }
 
 export function useTheme() {
-  const [style, setStyleState] = useState<StyleTheme>(() => {
-    const stored = localStorage.getItem(STYLE_KEY);
-    if (stored && ["default", "midnight", "enterprise", "warm", "vivid"].includes(stored)) {
-      return stored as StyleTheme;
+  const [mode, setModeState] = useState<ThemeMode>(() => {
+    const stored = localStorage.getItem(MODE_KEY);
+    if (stored === "light" || stored === "dark") {
+      return stored;
     }
-    return "default";
+
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+
+    return "light";
   });
 
   useEffect(() => {
-    applyStyle(style);
+    applyMode(mode);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const setStyle = useCallback((next: StyleTheme) => {
-    setStyleState(next);
-    localStorage.setItem(STYLE_KEY, next);
-    applyStyle(next);
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeState(next);
+    localStorage.setItem(MODE_KEY, next);
+    applyMode(next);
   }, []);
 
-  return { style, setStyle };
+  const toggleMode = useCallback(() => {
+    const next = mode === "light" ? "dark" : "light";
+    setMode(next);
+  }, [mode, setMode]);
+
+  return { mode, setMode, toggleMode };
 }

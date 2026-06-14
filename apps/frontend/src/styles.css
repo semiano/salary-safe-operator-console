@@ -1,90 +1,60 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ── Light (default) ─────────────────────────────────────────────────────────*/
+/* Light mode brand tokens */
 :root {
   color-scheme: light;
-  --ss-bg: #f5f2eb;
-  --ss-bg-rgb: 245 242 235;
+  --font-display: "Poppins", "Segoe UI", sans-serif;
+  --font-body: "DejaVu Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+  --ss-bg: #f6f8fc;
+  --ss-bg-rgb: 246 248 252;
   --ss-surface: #ffffff;
   --ss-surface-rgb: 255 255 255;
-  --ss-ink: #121826;
-  --ss-ink-rgb: 18 24 38;
-  --ss-muted: #71717a;
-  --ss-muted-rgb: 113 113 122;
-  --ss-border: rgba(18, 24, 38, 0.15);
-  --ss-accent: #d96c2d;
-  --ss-accent-rgb: 217 108 45;
-  --ss-header-bg: rgba(255, 255, 255, 0.85);
+  --ss-ink: #1e1b3e;
+  --ss-ink-rgb: 30 27 62;
+  --ss-muted: #6c6c86;
+  --ss-muted-rgb: 108 108 134;
+  --ss-border: #dde2ea;
+  --ss-accent: #3bd06e;
+  --ss-accent-rgb: 59 208 110;
+  --ss-accent-dark: #157f39;
+  --ss-match-bg: #eaf8ef;
+  --ss-caution-bg: #fff6d8;
+  --ss-caution-text: #9a6b00;
+  --ss-admin-orange: #b45309;
+  --ss-admin-orange-bg: #fff2e8;
+  --ss-header-bg: rgb(255 255 255 / 0.82);
+  --ss-shadow: 0 12px 36px rgb(var(--ss-ink-rgb) / 0.08);
 }
 
-/* ── Style themes ────────────────────────────────────────────────────────────*/
-/* Applied as data-theme="<name>" on <html> */
-
-[data-theme="midnight"] {
-  --ss-bg: #07090f;
-  --ss-bg-rgb: 7 9 15;
-  --ss-surface: #111827;
-  --ss-surface-rgb: 17 24 39;
-  --ss-ink: #c9d1e0;
-  --ss-ink-rgb: 201 209 224;
-  --ss-muted: #6b7280;
-  --ss-muted-rgb: 107 114 128;
-  --ss-border: rgba(255,255,255,0.08);
-  --ss-accent: #818cf8;
-  --ss-accent-rgb: 129 140 248;
-  --ss-header-bg: rgba(17, 24, 39, 0.82);
+/* Dark mode token map derived from brand sheet */
+[data-mode="dark"] {
+  color-scheme: dark;
+  --ss-bg: #131127;
+  --ss-bg-rgb: 19 17 39;
+  --ss-surface: #1c1938;
+  --ss-surface-rgb: 28 25 56;
+  --ss-ink: #f3f6ff;
+  --ss-ink-rgb: 243 246 255;
+  --ss-muted: #b8b9d3;
+  --ss-muted-rgb: 184 185 211;
+  --ss-border: #3c3a59;
+  --ss-accent: #59dd86;
+  --ss-accent-rgb: 89 221 134;
+  --ss-accent-dark: #3bd06e;
+  --ss-match-bg: #163022;
+  --ss-caution-bg: #3a2c0f;
+  --ss-caution-text: #ffd57a;
+  --ss-admin-orange: #ffb36b;
+  --ss-admin-orange-bg: #3e2614;
+  --ss-header-bg: rgb(28 25 56 / 0.78);
+  --ss-shadow: 0 14px 42px rgb(0 0 0 / 0.4);
 }
 
-[data-theme="enterprise"] {
-  --ss-bg: #f0f4f8;
-  --ss-bg-rgb: 240 244 248;
-  --ss-surface: #ffffff;
-  --ss-surface-rgb: 255 255 255;
-  --ss-ink: #1e293b;
-  --ss-ink-rgb: 30 41 59;
-  --ss-muted: #64748b;
-  --ss-muted-rgb: 100 116 139;
-  --ss-border: rgba(30,41,59,0.14);
-  --ss-accent: #0f4c91;
-  --ss-accent-rgb: 15 76 145;
-  --ss-header-bg: rgba(255, 255, 255, 0.86);
-}
-
-[data-theme="warm"] {
-  --ss-bg: #fdf6ef;
-  --ss-bg-rgb: 253 246 239;
-  --ss-surface: #fff9f4;
-  --ss-surface-rgb: 255 249 244;
-  --ss-ink: #2c1a0e;
-  --ss-ink-rgb: 44 26 14;
-  --ss-muted: #8b6347;
-  --ss-muted-rgb: 139 99 71;
-  --ss-border: rgba(44,26,14,0.14);
-  --ss-accent: #c2410c;
-  --ss-accent-rgb: 194 65 12;
-  --ss-header-bg: rgba(255, 249, 244, 0.88);
-}
-
-[data-theme="vivid"] {
-  --ss-bg: #f0fdf4;
-  --ss-bg-rgb: 240 253 244;
-  --ss-surface: #ffffff;
-  --ss-surface-rgb: 255 255 255;
-  --ss-ink: #14532d;
-  --ss-ink-rgb: 20 83 45;
-  --ss-muted: #4b7a5f;
-  --ss-muted-rgb: 75 122 95;
-  --ss-border: rgba(20,83,45,0.14);
-  --ss-accent: #16a34a;
-  --ss-accent-rgb: 22 163 74;
-  --ss-header-bg: rgba(255, 255, 255, 0.86);
-}
-
-/* ── Base styles ─────────────────────────────────────────────────────────────*/
 html,
 body,
 #root {
@@ -93,16 +63,46 @@ body,
 
 body {
   margin: 0;
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
-  background: var(--ss-bg);
+  font-family: var(--font-body);
+  background:
+    radial-gradient(circle at 12% -5%, rgb(var(--ss-accent-rgb) / 0.14), transparent 40%),
+    radial-gradient(circle at 94% 6%, rgb(var(--ss-ink-rgb) / 0.09), transparent 48%),
+    linear-gradient(180deg, var(--ss-bg) 0%, color-mix(in srgb, var(--ss-bg) 92%, #ffffff 8%) 100%);
   color: var(--ss-ink);
-  transition: background 0.2s, color 0.2s;
+  transition: background 0.25s, color 0.25s;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.font-display {
+  font-family: var(--font-display);
+}
+
+a {
+  color: var(--ss-accent-dark);
 }
 
 input,
 textarea,
 select {
   background: var(--ss-surface);
+  color: var(--ss-ink);
+  border: 1px solid var(--ss-border);
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: var(--font-body);
+}
+
+::selection {
+  background: rgb(var(--ss-accent-rgb) / 0.26);
   color: var(--ss-ink);
 }
 
@@ -112,4 +112,11 @@ select {
 
 .bg-white\/80 {
   background-color: color-mix(in srgb, var(--ss-surface) 80%, transparent) !important;
+}
+
+.shadow-sm,
+.shadow,
+.shadow-md,
+.shadow-lg {
+  box-shadow: var(--ss-shadow) !important;
 }

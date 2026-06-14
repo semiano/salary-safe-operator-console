@@ -12,8 +12,8 @@ export default {
         surface: "rgb(var(--ss-surface-rgb) / <alpha-value>)",
       },
       fontFamily: {
-        display: ["'Space Grotesk'", "ui-sans-serif", "system-ui", "sans-serif"],
-        body: ["'IBM Plex Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["'Poppins'", "'Segoe UI'", "ui-sans-serif", "system-ui", "sans-serif"],
+        body: ["'DejaVu Sans'", "'Segoe UI'", "ui-sans-serif", "system-ui", "sans-serif"],
       },
     },
   },
