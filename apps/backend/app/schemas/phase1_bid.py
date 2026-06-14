@@ -137,6 +137,7 @@ class Phase1BidResponse(BaseModel):
     candidate_submitted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    last_status_change_at: datetime | None = None
     job_title: str | None = None
     job_posted_at: datetime | None = None
 

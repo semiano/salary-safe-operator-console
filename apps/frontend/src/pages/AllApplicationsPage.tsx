@@ -482,20 +482,19 @@ export function AllApplicationsPage() {
               <th style={{ padding: "0.6rem 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
                 Match Score
               </th>
-              <th style={{ padding: "0.6rem 12px", textAlign: "right", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Invitation Date</th>
               <th style={{ padding: "0.6rem 1.25rem", textAlign: "right", fontSize: 11, fontWeight: 600, color: MUTED, letterSpacing: ".05em", textTransform: "uppercase", whiteSpace: "nowrap" }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={7} style={{ padding: "3rem", textAlign: "center", color: MUTED, fontSize: 14 }}>Loading applications…</td>
+                <td colSpan={6} style={{ padding: "3rem", textAlign: "center", color: MUTED, fontSize: 14 }}>Loading applications…</td>
               </tr>
             )}
 
             {!isLoading && total === 0 && (
               <tr>
-                <td colSpan={7} style={{ padding: "3rem", textAlign: "center" }}>
+                <td colSpan={6} style={{ padding: "3rem", textAlign: "center" }}>
                   <div style={{ width: 48, height: 48, borderRadius: "50%", background: BL, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem" }}>
                     <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
                       <rect x="3" y="5" width="16" height="13" rx="2" stroke={BT} strokeWidth="1.5" />
@@ -511,7 +510,7 @@ export function AllApplicationsPage() {
 
             {!isLoading && total > 0 && visibleBids.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: MUTED, fontSize: 14 }}>
+                <td colSpan={6} style={{ padding: "2.5rem", textAlign: "center", color: MUTED, fontSize: 14 }}>
                   No applications match the current filters.{" "}
                   <button type="button" onClick={clearFilters} style={{ color: BT, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 500 }}>
                     Clear filters
@@ -522,7 +521,9 @@ export function AllApplicationsPage() {
 
             {!isLoading && visibleBids.map((bid) => {
               const displayName = bid.candidate_name ?? bid.candidate_email ?? bid.applicant_identifier;
-              const dateLabel = bid.candidate_submitted_at
+              const dateLabel = bid.last_status_change_at
+                ? `Last status change ${formatDate(bid.last_status_change_at)}`
+                : bid.candidate_submitted_at
                 ? `Submitted ${formatDate(bid.candidate_submitted_at)}`
                 : bid.received_at
                 ? `Invited ${formatDate(bid.received_at)}`
@@ -718,11 +719,6 @@ function ApplicationRow({
             {formatMatchScore(bid.match_score)}
           </span>
         )}
-      </td>
-
-      {/* Date received */}
-      <td style={{ padding: "0 12px", fontSize: 12, color: FAINT, whiteSpace: "nowrap", textAlign: "right" }}>
-        {formatDate(bid.received_at)}
       </td>
 
       {/* Actions */}

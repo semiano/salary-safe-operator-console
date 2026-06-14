@@ -10,7 +10,7 @@ def _generate_invitation_code() -> str:
     return "".join(random.choices(alphabet, k=6))
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.case import NegotiationCase, Phase1Bid, Phase1BidEvent
@@ -70,6 +70,18 @@ class Phase1BidService:
             .order_by(Phase1BidEvent.created_at.desc())
         )
         return list(self.db.scalars(stmt).all())
+
+    def get_last_status_change_map(self, bid_ids: list[UUID]) -> dict[UUID, datetime]:
+        """Return the latest status event timestamp per bid id."""
+        if not bid_ids:
+            return {}
+        stmt = (
+            select(Phase1BidEvent.bid_id, func.max(Phase1BidEvent.created_at))
+            .where(Phase1BidEvent.bid_id.in_(bid_ids))
+            .where(Phase1BidEvent.category == "status")
+            .group_by(Phase1BidEvent.bid_id)
+        )
+        return {bid_id: ts for bid_id, ts in self.db.execute(stmt).all() if ts is not None}
 
     def get_bid(self, bid_id: UUID) -> Phase1Bid | None:
         return self.db.get(Phase1Bid, bid_id)

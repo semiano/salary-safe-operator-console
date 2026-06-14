@@ -79,7 +79,7 @@ def _send_response_with_email(service: Phase1BidService, bid: Phase1Bid) -> Phas
 
 # ── Shared response helper ────────────────────────────────────────────────────
 
-def _to_response(bid: Phase1Bid) -> Phase1BidResponse:
+def _to_response(bid: Phase1Bid, *, last_status_change_at=None) -> Phase1BidResponse:
     return Phase1BidResponse(
         id=bid.id,
         case_id=bid.case_id,
@@ -104,6 +104,7 @@ def _to_response(bid: Phase1Bid) -> Phase1BidResponse:
         candidate_submitted_at=bid.candidate_submitted_at,
         created_at=bid.created_at,
         updated_at=bid.updated_at,
+        last_status_change_at=last_status_change_at,
         job_title=bid.case.title if bid.case else None,
         job_posted_at=bid.case.created_at if bid.case else None,
     )
@@ -116,7 +117,9 @@ def list_applications(listing_id: UUID, db: Session = Depends(get_db)) -> list[P
     service = Phase1BidService(db)
     if service.get_case(listing_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job listing not found")
-    return [_to_response(b) for b in service.list_for_case(listing_id)]
+    bids = service.list_for_case(listing_id)
+    last_status_change_by_bid = service.get_last_status_change_map([b.id for b in bids])
+    return [_to_response(b, last_status_change_at=last_status_change_by_bid.get(b.id)) for b in bids]
 
 
 @router.post("/job-listings/{listing_id}/applications", response_model=Phase1BidResponse, status_code=status.HTTP_201_CREATED)
@@ -318,7 +321,9 @@ def get_listing_bid_stats(listing_id: UUID, db: Session = Depends(get_db)) -> Bi
 @router.get("/applications", response_model=list[Phase1BidResponse])
 def list_all_applications(db: Session = Depends(get_db)) -> list[Phase1BidResponse]:
     service = Phase1BidService(db)
-    return [_to_response(b) for b in service.list_all()]
+    bids = service.list_all()
+    last_status_change_by_bid = service.get_last_status_change_map([b.id for b in bids])
+    return [_to_response(b, last_status_change_at=last_status_change_by_bid.get(b.id)) for b in bids]
 
 
 @router.post("/applications/nudge-awaiting", response_model=Phase1BidBulkNudgeResult)
@@ -378,7 +383,8 @@ def get_application(application_id: UUID, db: Session = Depends(get_db)) -> Phas
     bid = service.get_bid(application_id)
     if bid is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
-    return _to_response(bid)
+    last_status_change_by_bid = service.get_last_status_change_map([bid.id])
+    return _to_response(bid, last_status_change_at=last_status_change_by_bid.get(bid.id))
 
 
 @router.put("/applications/{application_id}", response_model=Phase1BidResponse)

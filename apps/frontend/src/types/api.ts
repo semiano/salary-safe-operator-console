@@ -102,6 +102,7 @@ export type Phase1Bid = {
   candidate_submitted_at: string | null;
   created_at: string;
   updated_at: string;
+  last_status_change_at: string | null;
   job_title: string | null;
   job_posted_at: string | null;
 };
