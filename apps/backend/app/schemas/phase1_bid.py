@@ -208,6 +208,23 @@ class CandidateBidSubmitResponse(BaseModel):
     message: str
 
 
+class PublicApplyStatusResponse(BaseModel):
+    """Candidate-facing determination state for the post-submit screen.
+
+    A binding decision (success / final_no_match) is only surfaced once a real
+    response message has been dispatched and logged to the invitation history.
+    """
+    ok: bool = True
+    processing_state: str  # waiting | finalizing | ready
+    outcome: str  # none | success | revise_once | final_no_match
+    can_revise: bool = False
+    revision_used: bool = False
+    match_score: float | None = None
+    decision_message: str | None = None
+    job_title: str
+    currency: str
+
+
 class VerifyCodeRequest(BaseModel):
     code: str = Field(min_length=1, max_length=10)
 

@@ -80,6 +80,8 @@ class Phase1Bid(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     candidate_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     invitation_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Number of one-time candidate self-revisions used (0 = none, max 1 enforced in service).
+    revision_count: Mapped[int] = mapped_column(nullable=False, server_default="0", default=0)
 
     case: Mapped[NegotiationCase] = relationship(back_populates="phase1_bids")
     events: Mapped[list["Phase1BidEvent"]] = relationship(

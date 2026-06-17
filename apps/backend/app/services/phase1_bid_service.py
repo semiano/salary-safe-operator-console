@@ -643,6 +643,68 @@ class Phase1BidService:
         self.db.refresh(bid)
         return bid
 
+    def submit_candidate_revision(
+        self,
+        *,
+        bid: Phase1Bid,
+        salary_min: float,
+        salary_max: float,
+        insurance_importance_rank: int,
+        pto_importance_rank: int,
+        wfh_importance_rank: int,
+    ) -> Phase1Bid:
+        """Apply the candidate's one-time revised bid and reset the determination.
+
+        Enforces the single-revision rule and that a final response has not
+        already been dispatched.
+        """
+        if bid.submission_status == SUBMISSION_STATUS_SENT:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A final response has already been sent for this application",
+            )
+        if bid.submission_status != SUBMISSION_STATUS_SUBMITTED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This application cannot be revised in its current state",
+            )
+        if bid.revision_count >= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You have already used your one-time revision",
+            )
+
+        bid.salary_min = salary_min
+        bid.salary_max = salary_max
+        bid.insurance_importance_rank = insurance_importance_rank
+        bid.pto_importance_rank = pto_importance_rank
+        bid.wfh_importance_rank = wfh_importance_rank
+        bid.revision_count += 1
+        # Reset the determination so the AI re-evaluates the revised bid.
+        bid.decision_status = DECISION_PENDING
+        bid.match_score = None
+        bid.decision_reason = None
+        bid.response_message = ""
+        bid.candidate_submitted_at = datetime.now(timezone.utc)
+        self._append_event(
+            bid,
+            category="status",
+            event_type="candidate_revised_bid",
+            title="Candidate revised bid",
+            detail="Candidate used their one-time revision to update salary expectations.",
+            payload={
+                "salary_min": bid.salary_min,
+                "salary_max": bid.salary_max,
+                "insurance_importance_rank": bid.insurance_importance_rank,
+                "pto_importance_rank": bid.pto_importance_rank,
+                "wfh_importance_rank": bid.wfh_importance_rank,
+                "revision_count": bid.revision_count,
+            },
+        )
+        self.db.commit()
+        self.db.refresh(bid)
+        return bid
+
     def log_message_event(
         self,
         *,

@@ -52,11 +52,13 @@ def _build_mime(to: str, subject: str, body_html: str) -> MIMEMultipart:
     return msg
 
 
-def _send_via_smtp(msg: MIMEMultipart, to: str) -> None:
+def _send_via_smtp(msg: MIMEMultipart, to: str) -> bool:
+    """Return True when the message was dispatched (or dev-logged with no SMTP host),
+    False when a real SMTP/socket error prevented delivery."""
     host = _env("SMTP_HOST")
     if not host:
         logger.info("MAIL | no SMTP_HOST configured — would have sent to %s: %s", to, msg["Subject"])
-        return
+        return True
 
     port = int(_env("SMTP_PORT", "587"))
     user = _env("SMTP_USER")
@@ -70,19 +72,24 @@ def _send_via_smtp(msg: MIMEMultipart, to: str) -> None:
                 smtp.login(user, password)
             smtp.sendmail(msg["From"], [to], msg.as_string())
         logger.info("MAIL | sent to %s via SMTP: %s", to, msg["Subject"])
+        return True
     except (smtplib.SMTPException, socket.error) as exc:
         logger.warning("MAIL | SMTP error sending to %s: %s", to, exc)
+        return False
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def send_email(to: str, subject: str, body_html: str) -> None:
-    """Send a transactional email.
+def send_email(to: str, subject: str, body_html: str) -> bool:
+    """Send a transactional email and report whether it was dispatched.
 
     If MAIL_OVERRIDE_ADDRESS is set and MAIL_OVERRIDE_ENABLED is true the
     recipient is replaced with the override address and the original recipient
     is prepended to the subject so emails are visible in a shared inbox during
     QA / staging.
+
+    Returns True when the message was dispatched (or dev-logged with no SMTP
+    host configured), False when a real send error prevented delivery.
     """
     override_address = _env("MAIL_OVERRIDE_ADDRESS")
     override_enabled = _flag("MAIL_OVERRIDE_ENABLED", default=False)
@@ -96,7 +103,7 @@ def send_email(to: str, subject: str, body_html: str) -> None:
         logger.info("MAIL | override active — redirecting %s to %s", to, effective_to)
 
     msg = _build_mime(effective_to, effective_subject, body_html)
-    _send_via_smtp(msg, effective_to)
+    return _send_via_smtp(msg, effective_to)
 
 
 # ── Email templates ───────────────────────────────────────────────────────────
@@ -177,8 +184,11 @@ def send_bid_response(
     decision: str,
     response_message: str | None,
     company_name: str = "Hiring Team",
-) -> None:
-    """Send the hiring decision / response message to a candidate."""
+) -> bool:
+    """Send the hiring decision / response message to a candidate.
+
+    Returns True when the email was dispatched, False on a real send failure.
+    """
     if decision == "accepted":
         subject = f"Great news regarding your bid for {role_title}"
         opener = "We're pleased to let you know that your bid has been accepted."
@@ -210,4 +220,4 @@ def send_bid_response(
       </p>
     </body></html>
     """
-    send_email(to=candidate_email, subject=subject, body_html=body)
+    return send_email(to=candidate_email, subject=subject, body_html=body)

@@ -4,10 +4,10 @@
  */
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGetPublic, apiPostPublic } from "../api/client";
-import type { PublicBidLookup } from "../types/api";
+import type { PublicApplyStatus, PublicBidLookup } from "../types/api";
 
 // ── Brand tokens ──────────────────────────────────────────────────────────────
 const B = "#019529";
@@ -130,131 +130,421 @@ function RankSelector({
   );
 }
 
-function AlignmentBar({ pct, label }: { pct: number; label: string }) {
+function MatchRing({ pct, color }: { pct: number; color: string }) {
+  const size = 132;
+  const stroke = 10;
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(100, pct));
+  const offset = circ - (clamped / 100) * circ;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <div style={{ flex: 1, height: 6, borderRadius: 3, background: "rgba(255,255,255,.15)", overflow: "hidden" }}>
-        <div style={{ height: "100%", borderRadius: 3, background: B, width: `${pct}%` }} />
+    <div style={{ position: "relative", width: size, height: size, margin: "0 auto 1.25rem" }}>
+      <svg width={size} height={size}>
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke="#eef0f2" strokeWidth={stroke} fill="none" />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth={stroke}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dashoffset .6s ease" }}
+        />
+      </svg>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <span style={{ fontSize: 30, fontWeight: 800, color: NAVY, letterSpacing: "-.02em" }}>
+          {Math.round(clamped)}%
+        </span>
+        <span style={{ fontSize: 11, color: MUTED, textTransform: "uppercase", letterSpacing: ".06em" }}>match</span>
       </div>
-      <span style={{ fontSize: 11, color: "rgba(255,255,255,.55)" }}>{label}</span>
     </div>
   );
 }
 
-function LeftSidebarCards() {
+function Spinner() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <>
+      <style>{"@keyframes ss-spin{to{transform:rotate(360deg)}}"}</style>
       <div
         style={{
-          background: "#fff",
-          border: `1px solid ${BORDER}`,
-          borderRadius: R_LG,
-          padding: "1.25rem",
-          boxShadow: "0 1px 6px rgba(0,0,0,.05)",
+          width: 42,
+          height: 42,
+          borderRadius: "50%",
+          border: `3px solid ${BORDER}`,
+          borderTopColor: B,
+          animation: "ss-spin .8s linear infinite",
+          margin: "0 auto 1.25rem",
         }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            color: BT,
-            textTransform: "uppercase",
-            letterSpacing: ".06em",
-            marginBottom: 10,
-          }}
-        >
-          Your task
-        </div>
-        <p style={{ fontSize: 13, color: "#222", lineHeight: 1.65, margin: "0 0 10px" }}>
-          Complete your compensation target and benefit priorities, then submit your application.
-        </p>
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#444", lineHeight: 1.8 }}>
-          <li>Set your minimum and target salary range.</li>
-          <li>Rank each benefit area by importance to you.</li>
-          <li>Review the role details before submitting.</li>
-        </ul>
-        <div
-          style={{
-            marginTop: 14,
-            background: BL,
-            border: "1px solid #b3e0bb",
-            borderRadius: R_MD,
-            padding: "9px 12px",
-            fontSize: 12,
-            color: BT,
-            lineHeight: 1.55,
-          }}
-        >
-          <strong>Privacy:</strong> Your details are handled confidentially and only shared with the hiring team.
+      />
+    </>
+  );
+}
+
+function PrivacyNote() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 8,
+        background: BL,
+        border: "1px solid #b3e0bb",
+        borderRadius: R_MD,
+        padding: "10px 12px",
+        marginTop: 18,
+        textAlign: "left",
+      }}
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
+        <rect x="5" y="11" width="14" height="9" rx="2" stroke={BT} strokeWidth="2" />
+        <path d="M8 11V8a4 4 0 0 1 8 0v3" stroke={BT} strokeWidth="2" />
+      </svg>
+      <span style={{ fontSize: 12, color: BT, lineHeight: 1.55 }}>
+        Your exact figures were never shared with the employer. SalarySafe only checked alignment on pay and priorities.
+      </span>
+    </div>
+  );
+}
+
+type RankTriple = { insurance: 1 | 2 | 3; pto: 1 | 2 | 3; wfh: 1 | 2 | 3 };
+
+// ── Post-submit status + outcome view (polls the determination) ────────────────
+function ApplyStatusView({
+  token,
+  requiresCode,
+  invitationCode,
+  lastRanks,
+}: {
+  token: string;
+  requiresCode: boolean;
+  invitationCode: string | null;
+  lastRanks: RankTriple;
+}) {
+  const queryClient = useQueryClient();
+  const [reviseMin, setReviseMin] = useState("");
+  const [reviseMax, setReviseMax] = useState("");
+  const [reviseError, setReviseError] = useState<string | null>(null);
+  const [declined, setDeclined] = useState(false);
+
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["apply-status", token],
+    queryFn: () => apiGetPublic<PublicApplyStatus>(`/apply/${token}/status`),
+    refetchInterval: (query) => {
+      const s = query.state.data as PublicApplyStatus | undefined;
+      if (s && s.processing_state === "ready") {
+        return false;
+      }
+      return 2500;
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  const reviseMutation = useMutation({
+    mutationFn: (payload: {
+      salary_min: number;
+      salary_max: number;
+      insurance_importance_rank: 1 | 2 | 3;
+      pto_importance_rank: 1 | 2 | 3;
+      wfh_importance_rank: 1 | 2 | 3;
+      invitation_code?: string;
+    }) => apiPostPublic<PublicApplyStatus>(`/apply/${token}/revise`, payload),
+    onSuccess: () => {
+      setReviseError(null);
+      queryClient.invalidateQueries({ queryKey: ["apply-status", token] });
+    },
+    onError: () => setReviseError("We couldn't submit your revised range. Please try again."),
+  });
+
+  const sym = status ? currencySymbol(status.currency) : "$";
+
+  function handleRevise() {
+    setReviseError(null);
+    const min = parseFloat(reviseMin.replace(/,/g, ""));
+    const max = parseFloat(reviseMax.replace(/,/g, ""));
+    if (!reviseMin || isNaN(min) || min <= 0) {
+      setReviseError("Please enter your revised minimum salary.");
+      return;
+    }
+    if (!reviseMax || isNaN(max) || max <= 0) {
+      setReviseError("Please enter your revised target salary.");
+      return;
+    }
+    if (max < min) {
+      setReviseError("Target salary must be at or above the minimum.");
+      return;
+    }
+    reviseMutation.mutate({
+      salary_min: min,
+      salary_max: max,
+      insurance_importance_rank: lastRanks.insurance,
+      pto_importance_rank: lastRanks.pto,
+      wfh_importance_rank: lastRanks.wfh,
+      invitation_code: requiresCode ? invitationCode ?? undefined : undefined,
+    });
+  }
+
+  const centerCard: React.CSSProperties = { ...card, textAlign: "center" };
+  const heading: React.CSSProperties = { fontSize: 21, fontWeight: 800, color: NAVY, margin: "0 0 8px", letterSpacing: "-.02em" };
+  const body: React.CSSProperties = { fontSize: 14, color: MUTED, lineHeight: 1.6, margin: 0 };
+
+  // Waiting / finalizing / loading → animated holding screen.
+  if (isLoading || !status || status.processing_state !== "ready") {
+    const finalizing = status?.processing_state === "finalizing";
+    return (
+      <div style={pageWrap}>
+        <div style={centerCard}>
+          <BrandMark />
+          <div style={{ padding: "1.5rem 0 1rem" }}>
+            <Spinner />
+            <h2 style={heading}>{finalizing ? "Finalizing your result…" : "Reviewing your application…"}</h2>
+            <p style={body}>
+              {finalizing
+                ? "We're confirming your result and sending it your way. This only takes a moment."
+                : "SalarySafe is checking how your expectations align with this role. This usually takes only a few moments — this page will update automatically."}
+            </p>
+          </div>
         </div>
       </div>
+    );
+  }
 
-      <div
-        style={{
-          background: NAVY,
-          borderRadius: R_LG,
-          padding: "1.25rem",
-        }}
-      >
-        <p
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: ".1em",
-            color: "#5ab870",
-            margin: "0 0 .75rem",
-          }}
-        >
-          How matching works
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {[
-            { num: "1", label: "Role listed confidentially", note: "Employer budget is never exposed to candidates" },
-            { num: "2", label: "You submit privately", note: "Only your application details are reviewed" },
-            { num: "3", label: "SalarySafe checks fit", note: "Matching logic compares alignment signals" },
-            { num: "4", label: "Hiring team follows up", note: "Next steps proceed once there is alignment" },
-          ].map((step) => (
-            <div key={step.num} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-              <div
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 6,
-                  background: step.num === "3" ? B : "#2a1d4f",
-                  border: "1px solid rgba(255,255,255,.15)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "#fff",
-                  flexShrink: 0,
-                }}
-              >
-                {step.num}
+  // Success — strong match, response dispatched.
+  if (status.outcome === "success") {
+    return (
+      <div style={pageWrap}>
+        <div style={centerCard}>
+          <BrandMark />
+          {status.match_score != null && <MatchRing pct={status.match_score} color={B} />}
+          <h2 style={heading}>It's a strong match!</h2>
+          <p style={body}>
+            Your expectations for <strong style={{ color: "#111" }}>{status.job_title}</strong> align well with this
+            role. The hiring team has been notified and will be in touch about next steps.
+          </p>
+          {status.decision_message && (
+            <div
+              style={{
+                marginTop: 18,
+                background: "#fff",
+                border: `1px solid ${BORDER}`,
+                borderRadius: R_MD,
+                padding: "12px 14px",
+                fontSize: 13,
+                color: "#27272a",
+                lineHeight: 1.6,
+                textAlign: "left",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {status.decision_message}
+            </div>
+          )}
+          <PrivacyNote />
+        </div>
+      </div>
+    );
+  }
+
+  // Final no-match — revision used, response dispatched.
+  if (status.outcome === "final_no_match") {
+    return (
+      <div style={pageWrap}>
+        <div style={centerCard}>
+          <BrandMark />
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: "#fef2f2",
+              border: "2px solid #fecaca",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 1.25rem",
+            }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M7 7l10 10M17 7L7 17" stroke="#b91c1c" strokeWidth="2.4" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h2 style={heading}>Not a match on pay this time</h2>
+          <p style={body}>
+            Thanks for revising your application for <strong style={{ color: "#111" }}>{status.job_title}</strong>.
+            Unfortunately your expectations and this role don't align on compensation right now.
+          </p>
+          {status.decision_message && (
+            <div
+              style={{
+                marginTop: 18,
+                background: "#fff",
+                border: `1px solid ${BORDER}`,
+                borderRadius: R_MD,
+                padding: "12px 14px",
+                fontSize: 13,
+                color: "#27272a",
+                lineHeight: 1.6,
+                textAlign: "left",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {status.decision_message}
+            </div>
+          )}
+          <PrivacyNote />
+        </div>
+      </div>
+    );
+  }
+
+  // Revise once — partial match, one-time opportunity to adjust the range.
+  if (status.outcome === "revise_once") {
+    if (declined) {
+      return (
+        <div style={pageWrap}>
+          <div style={centerCard}>
+            <BrandMark />
+            <h2 style={heading}>Your application stands</h2>
+            <p style={body}>
+              No problem — we've kept your original application for{" "}
+              <strong style={{ color: "#111" }}>{status.job_title}</strong> as submitted. The hiring team will be in
+              touch if anything changes.
+            </p>
+            <PrivacyNote />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={pageWrap}>
+        <div style={centerCard}>
+          <BrandMark />
+          {status.match_score != null && <MatchRing pct={status.match_score} color="#d97706" />}
+          <h2 style={heading}>Close, but not quite a match yet</h2>
+          <p style={body}>
+            Your expectations for <strong style={{ color: "#111" }}>{status.job_title}</strong> are a partial match on
+            pay. You have a <strong>one-time</strong> opportunity to revise your salary range — your figures are never
+            shared with the employer.
+          </p>
+
+          <div style={{ marginTop: 20, textAlign: "left" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#111", marginBottom: 6 }}>
+                  Minimum ({sym})
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  placeholder="e.g. 75000"
+                  value={reviseMin}
+                  onChange={(e) => setReviseMin(e.target.value)}
+                  style={inputStyle}
+                />
               </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: "#fff", lineHeight: 1.3 }}>{step.label}</div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,.45)", marginTop: 2 }}>{step.note}</div>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#111", marginBottom: 6 }}>
+                  Target ({sym})
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  placeholder="e.g. 92000"
+                  value={reviseMax}
+                  onChange={(e) => setReviseMax(e.target.value)}
+                  style={inputStyle}
+                />
               </div>
             </div>
-          ))}
-        </div>
-        <div style={{ marginTop: "1rem", borderTop: "0.5px solid rgba(255,255,255,.1)", paddingTop: ".875rem" }}>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,.35)", marginBottom: 8 }}>Alignment signal examples</div>
-          <AlignmentBar pct={90} label="Strong" />
-          <div style={{ marginTop: 8 }}>
-            <AlignmentBar pct={55} label="Partial" />
+
+            {reviseError && (
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  borderRadius: R_MD,
+                  padding: "10px 14px",
+                  fontSize: 13,
+                  color: "#b91c1c",
+                  marginTop: 14,
+                }}
+              >
+                {reviseError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleRevise}
+              disabled={reviseMutation.isPending}
+              style={{
+                width: "100%",
+                background: reviseMutation.isPending ? "#a3d9b0" : B,
+                color: "#fff",
+                border: "none",
+                borderRadius: R_MD,
+                padding: "12px",
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: reviseMutation.isPending ? "not-allowed" : "pointer",
+                fontFamily: "inherit",
+                marginTop: 16,
+              }}
+            >
+              {reviseMutation.isPending ? "Submitting…" : "Submit my revised range"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeclined(true)}
+              disabled={reviseMutation.isPending}
+              style={{
+                width: "100%",
+                background: "transparent",
+                color: MUTED,
+                border: "none",
+                padding: "10px",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                marginTop: 6,
+              }}
+            >
+              No thanks — keep my current application
+            </button>
           </div>
-          <div style={{ marginTop: 8 }}>
-            <AlignmentBar pct={22} label="No match" />
-          </div>
+          <PrivacyNote />
         </div>
+      </div>
+    );
+  }
+
+  // Fallback (shouldn't normally hit).
+  return (
+    <div style={pageWrap}>
+      <div style={centerCard}>
+        <BrandMark />
+        <h2 style={heading}>Application received</h2>
+        <p style={body}>Your application has been submitted. The hiring team will be in touch.</p>
       </div>
     </div>
   );
 }
+
 
 function JobDescriptionSlideout({
   open,
@@ -525,40 +815,19 @@ export function CandidateApplyPage() {
     );
   }
 
-  // ── Already submitted ──────────────────────────────────────────────────────
+  // ── Submitted → poll the determination and show the outcome ────────────────
   if (bid.already_submitted || submitted) {
     return (
-      <div style={pageWrap}>
-        <div style={card}>
-          <BrandMark />
-          <div style={{ textAlign: "center", padding: "1.5rem 1rem 2rem" }}>
-            <div
-              style={{
-                width: 56,
-                height: 56,
-                borderRadius: "50%",
-                background: BL,
-                border: "2px solid #b3e0bb",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto 1rem",
-              }}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path d="M5 13l4 4L19 7" stroke={BT} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: "#111", marginBottom: 8 }}>
-              Application submitted!
-            </h2>
-            <p style={{ fontSize: 14, color: MUTED }}>
-              Your application for <strong>{bid.job_title}</strong> has been submitted confidentially.
-              The hiring team will review it and be in touch.
-            </p>
-          </div>
-        </div>
-      </div>
+      <ApplyStatusView
+        token={token!}
+        requiresCode={bid.requires_code}
+        invitationCode={verifiedInvitationCode}
+        lastRanks={{
+          insurance: insuranceRank ?? 2,
+          pto: ptoRank ?? 2,
+          wfh: wfhRank ?? 2,
+        }}
+      />
     );
   }
 
@@ -620,21 +889,7 @@ export function CandidateApplyPage() {
 
   return (
     <div style={pageWrap}>
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 1180,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: 20,
-          alignItems: "start",
-        }}
-      >
-        <aside style={{ minWidth: 0 }}>
-          <LeftSidebarCards />
-        </aside>
-
-        <div style={{ ...card, maxWidth: "none" }}>
+      <div style={{ ...card, maxWidth: 600 }}>
         <BrandMark />
 
         {/* Job info header */}
@@ -830,7 +1085,6 @@ export function CandidateApplyPage() {
         <p style={{ fontSize: 12, color: MUTED, textAlign: "center", marginTop: 12, lineHeight: 1.5 }}>
           Your submission is confidential and will only be seen by the hiring team.
         </p>
-        </div>
       </div>
 
       <JobDescriptionSlideout

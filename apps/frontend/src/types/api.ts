@@ -142,6 +142,18 @@ export type PublicBidLookup = {
   benefits: string[];
 };
 
+export type PublicApplyStatus = {
+  ok: boolean;
+  processing_state: "waiting" | "finalizing" | "ready";
+  outcome: "none" | "success" | "revise_once" | "final_no_match";
+  can_revise: boolean;
+  revision_used: boolean;
+  match_score: number | null;
+  decision_message: string | null;
+  job_title: string;
+  currency: string;
+};
+
 export type FinalReport = {
   schema_version: string;
   negotiation_id: string;

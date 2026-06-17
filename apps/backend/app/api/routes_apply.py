@@ -18,6 +18,7 @@ from app.core.db import SessionLocal, get_db
 from app.schemas.phase1_bid import (
     CandidateBidSubmitRequest,
     CandidateBidSubmitResponse,
+    PublicApplyStatusResponse,
     PublicBidLookupResponse,
     VerifyCodeRequest,
     VerifyCodeResponse,
@@ -28,6 +29,7 @@ from app.services.phase1_bid_service import (
     DECISION_REJECTED,
     SUBMISSION_STATUS_INVITATION_PENDING,
     SUBMISSION_STATUS_SUBMITTED,
+    SUBMISSION_STATUS_SENT,
     Phase1BidService,
 )
 from app.services.config_service import ConfigService
@@ -46,37 +48,69 @@ def _should_auto_send_response(*, decision_status: str, match_score: float | Non
     return match_score >= threshold
 
 
-def _send_response_with_email(service: Phase1BidService, bid) -> None:
-    updated = service.send_response(bid)
-    if not updated.candidate_email:
-        return
+def _resolve_response_message(service: Phase1BidService, bid) -> str:
+    message = (bid.response_message or "").strip()
+    if message:
+        return message
+    return service.default_response_message(bid, bid.decision_status or "pending", bid.decision_reason)
 
-    case = service.get_case(updated.case_id)
+
+def _dispatch_decision(service: Phase1BidService, bid):
+    """Send the candidate's decision email and only mark the bid as response_sent
+    once delivery is confirmed and logged. Returns the (possibly unchanged) bid."""
+    if bid.decision_status not in {DECISION_ACCEPTED, DECISION_REJECTED}:
+        return bid
+    if not bid.candidate_email:
+        # Without an email target we cannot satisfy the "decision shows only if a
+        # real message was dispatched" rule, so leave the bid open.
+        return bid
+
+    case = service.get_case(bid.case_id)
     role_title = case.title if case else "the role"
     subject = f"Update on your bid for {role_title}"
-    try:
-        send_bid_response(
-            candidate_name=updated.candidate_name or "",
-            candidate_email=updated.candidate_email,
-            role_title=role_title,
-            decision=updated.decision_status or "pending",
-            response_message=updated.response_message,
-        )
+    message = _resolve_response_message(service, bid)
+
+    delivered = send_bid_response(
+        candidate_name=bid.candidate_name or "",
+        candidate_email=bid.candidate_email,
+        role_title=role_title,
+        decision=bid.decision_status or "pending",
+        response_message=message,
+    )
+
+    if not delivered:
         service.log_message_event(
-            bid=updated,
-            event_type="email_delivery",
-            title="Response email delivered",
-            detail="Final response email was sent to the candidate.",
-            payload={"channel": "email", "status": "sent", "subject": subject},
-        )
-    except Exception:  # noqa: BLE001
-        service.log_message_event(
-            bid=updated,
+            bid=bid,
             event_type="email_delivery",
             title="Response email failed",
-            detail="Final response email failed to send.",
+            detail="Final response email failed to send; decision withheld from candidate.",
             payload={"channel": "email", "status": "failed", "subject": subject},
         )
+        return bid
+
+    updated = service.send_response(bid)
+    service.log_message_event(
+        bid=updated,
+        event_type="email_delivery",
+        title="Response email delivered",
+        detail="Final response email was sent to the candidate.",
+        payload={"channel": "email", "status": "sent", "subject": subject},
+    )
+    return updated
+
+
+def _finalize_no_match(service: Phase1BidService, bid):
+    """Force a rejected decision (for correct messaging) and dispatch the final
+    no-match response after the candidate's one-time revision."""
+    if bid.decision_status != DECISION_REJECTED:
+        bid = service.update_decision(
+            bid=bid,
+            decision_status=DECISION_REJECTED,
+            match_score=None,
+            decision_reason=bid.decision_reason,
+            response_message=None,
+        )
+    return _dispatch_decision(service, bid)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -190,6 +224,128 @@ def submit_apply(
     )
 
 
+def _compute_candidate_state(bid, threshold: float) -> PublicApplyStatusResponse:
+    """Map internal bid state to the candidate-facing determination contract.
+
+    A binding decision (success / final_no_match) is only surfaced once the bid
+    has been marked response_sent — which now happens exclusively after a real
+    response email was dispatched and logged.
+    """
+    job_title = "the role"
+    case = None
+    currency = "USD"
+    try:
+        case = bid.case
+    except Exception:  # noqa: BLE001
+        case = None
+    if case is not None:
+        currency = case.currency
+        company_party = next((p for p in case.parties if p.party_type == "company"), None)
+        if company_party:
+            pub = company_party.public_payload or {}
+            job_title = _str_field(pub, "job_title") or _str_field(pub, "role_title") or case.title or job_title
+        elif case.title:
+            job_title = case.title
+
+    dispatched = bid.submission_status == SUBMISSION_STATUS_SENT
+    revision_used = bid.revision_count >= 1
+    is_match = (
+        bid.decision_status == DECISION_ACCEPTED
+        and bid.match_score is not None
+        and bid.match_score >= threshold
+    )
+
+    if bid.decision_status == DECISION_PENDING:
+        return PublicApplyStatusResponse(
+            processing_state="waiting", outcome="none",
+            can_revise=False, revision_used=revision_used,
+            job_title=job_title, currency=currency,
+        )
+
+    if is_match:
+        if dispatched:
+            return PublicApplyStatusResponse(
+                processing_state="ready", outcome="success",
+                can_revise=False, revision_used=revision_used,
+                match_score=bid.match_score, decision_message=bid.response_message or None,
+                job_title=job_title, currency=currency,
+            )
+        return PublicApplyStatusResponse(
+            processing_state="finalizing", outcome="none",
+            can_revise=False, revision_used=revision_used,
+            job_title=job_title, currency=currency,
+        )
+
+    # Not a match.
+    if not revision_used and not dispatched:
+        return PublicApplyStatusResponse(
+            processing_state="ready", outcome="revise_once",
+            can_revise=True, revision_used=False,
+            match_score=bid.match_score,
+            job_title=job_title, currency=currency,
+        )
+
+    if dispatched:
+        return PublicApplyStatusResponse(
+            processing_state="ready", outcome="final_no_match",
+            can_revise=False, revision_used=revision_used,
+            match_score=bid.match_score, decision_message=bid.response_message or None,
+            job_title=job_title, currency=currency,
+        )
+
+    return PublicApplyStatusResponse(
+        processing_state="finalizing", outcome="none",
+        can_revise=False, revision_used=revision_used,
+        job_title=job_title, currency=currency,
+    )
+
+
+@router.get("/apply/{token}/status", response_model=PublicApplyStatusResponse)
+def get_apply_status(token: UUID, db: Session = Depends(get_db)) -> PublicApplyStatusResponse:
+    bid, service = _lookup(token, db)
+    if bid.submission_status == SUBMISSION_STATUS_INVITATION_PENDING:
+        case = service.get_case(bid.case_id)
+        return PublicApplyStatusResponse(
+            processing_state="waiting", outcome="none",
+            can_revise=False, revision_used=False,
+            job_title=(case.title if case else "the role"),
+            currency=(case.currency if case else "USD"),
+        )
+    threshold = ConfigService(db).get_auto_accept_match_threshold()
+    return _compute_candidate_state(bid, threshold)
+
+
+@router.post("/apply/{token}/revise", response_model=PublicApplyStatusResponse)
+def revise_apply(
+    token: UUID,
+    payload: CandidateBidSubmitRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> PublicApplyStatusResponse:
+    bid, service = _lookup(token, db)
+
+    if bid.invitation_code:
+        if not payload.invitation_code or not service.verify_invitation_code(bid, payload.invitation_code):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="A valid invitation code is required to revise this application",
+            )
+
+    service.submit_candidate_revision(
+        bid=bid,
+        salary_min=payload.salary_min,
+        salary_max=payload.salary_max,
+        insurance_importance_rank=payload.insurance_importance_rank,
+        pto_importance_rank=payload.pto_importance_rank,
+        wfh_importance_rank=payload.wfh_importance_rank,
+    )
+
+    background_tasks.add_task(_run_ai_match_for_bid, bid_id=bid.id)
+
+    threshold = ConfigService(db).get_auto_accept_match_threshold()
+    return _compute_candidate_state(bid, threshold)
+
+
 # ── Background AI match ───────────────────────────────────────────────────────
 
 async def _run_ai_match_for_bid(bid_id: UUID) -> None:
@@ -261,15 +417,20 @@ async def _run_ai_match_for_bid(bid_id: UUID) -> None:
         )
 
         threshold = config_service.get_auto_accept_match_threshold()
-        if (
-            updated.submission_status == SUBMISSION_STATUS_SUBMITTED
-            and _should_auto_send_response(
+        if updated.submission_status == SUBMISSION_STATUS_SUBMITTED:
+            is_match = _should_auto_send_response(
                 decision_status=updated.decision_status,
                 match_score=updated.match_score,
                 threshold=threshold,
             )
-        ):
-            _send_response_with_email(service, updated)
+            if is_match:
+                # Strong match → dispatch the acceptance response immediately.
+                _dispatch_decision(service, updated)
+            elif updated.revision_count >= 1:
+                # Not a match and the one-time revision has been used → final answer.
+                _finalize_no_match(service, updated)
+            # else: not a match on the first pass → leave open so the candidate
+            # can use their one-time revision before any decision is dispatched.
     except Exception as exc:
         logger.warning("Auto AI match failed for bid %s: %s", bid_id, exc)
     finally:

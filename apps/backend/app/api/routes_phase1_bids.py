@@ -44,35 +44,47 @@ def _should_auto_send_response(*, decision_status: str, match_score: float | Non
 
 
 def _send_response_with_email(service: Phase1BidService, bid: Phase1Bid) -> Phase1Bid:
+    # Only mark the bid as response_sent once the email is confirmed delivered, so
+    # a decision is never surfaced to the candidate without a real message record.
+    if not bid.candidate_email:
+        return service.send_response(bid)
+
+    case = service.get_case(bid.case_id)
+    role_title = case.title if case else "the role"
+    subject = f"Update on your bid for {role_title}"
+    message = (bid.response_message or "").strip()
+    if not message:
+        message = service.default_response_message(bid, bid.decision_status or "pending", bid.decision_reason)
+
+    delivered = send_bid_response(
+        candidate_name=bid.candidate_name or "",
+        candidate_email=bid.candidate_email,
+        role_title=role_title,
+        decision=bid.decision_status or "pending",
+        response_message=message,
+    )
+
+    if not delivered:
+        service.log_message_event(
+            bid=bid,
+            event_type="email_delivery",
+            title="Response email failed",
+            detail="Final response email failed to send; decision withheld from candidate.",
+            payload={"channel": "email", "status": "failed", "subject": subject},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to send response email; the candidate has not been notified.",
+        )
+
     updated = service.send_response(bid)
-
-    if updated.candidate_email:
-        case = service.get_case(updated.case_id)
-        subject = f"Update on your bid for {case.title if case else 'the role'}"
-        try:
-            send_bid_response(
-                candidate_name=updated.candidate_name or "",
-                candidate_email=updated.candidate_email,
-                role_title=case.title if case else "the role",
-                decision=updated.decision_status or "pending",
-                response_message=updated.response_message,
-            )
-            service.log_message_event(
-                bid=updated,
-                event_type="email_delivery",
-                title="Response email delivered",
-                detail="Final response email was sent to the candidate.",
-                payload={"channel": "email", "status": "sent", "subject": subject},
-            )
-        except Exception:  # noqa: BLE001
-            service.log_message_event(
-                bid=updated,
-                event_type="email_delivery",
-                title="Response email failed",
-                detail="Final response email failed to send.",
-                payload={"channel": "email", "status": "failed", "subject": subject},
-            )
-
+    service.log_message_event(
+        bid=updated,
+        event_type="email_delivery",
+        title="Response email delivered",
+        detail="Final response email was sent to the candidate.",
+        payload={"channel": "email", "status": "sent", "subject": subject},
+    )
     return updated
 
 
@@ -343,16 +355,8 @@ def send_phase1_bid_message(
         "<p>Thank you,<br/>SalarySafe Hiring Team</p>"
         "</body></html>"
     )
-    try:
-        send_email(to=bid.candidate_email, subject=payload.subject, body_html=body)
-        service.log_message_event(
-            bid=bid,
-            event_type="manual_message_sent",
-            title="Message sent",
-            detail="Operator sent a direct message email to candidate.",
-            payload={"channel": "email", "status": "sent", "subject": payload.subject},
-        )
-    except Exception:  # noqa: BLE001
+    delivered = send_email(to=bid.candidate_email, subject=payload.subject, body_html=body)
+    if not delivered:
         service.log_message_event(
             bid=bid,
             event_type="manual_message_sent",
@@ -361,6 +365,14 @@ def send_phase1_bid_message(
             payload={"channel": "email", "status": "failed", "subject": payload.subject},
         )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to send email")
+
+    service.log_message_event(
+        bid=bid,
+        event_type="manual_message_sent",
+        title="Message sent",
+        detail="Operator sent a direct message email to candidate.",
+        payload={"channel": "email", "status": "sent", "subject": payload.subject},
+    )
 
     return _to_response(bid)
 
